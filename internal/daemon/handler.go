@@ -2,7 +2,12 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/tta-lab/temenos/sandbox"
@@ -40,6 +45,18 @@ type HealthResponse struct {
 	Version  string `json:"version"`
 }
 
+// validatePath rejects paths that are not absolute or contain traversal components.
+func validatePath(p string) error {
+	clean := filepath.Clean(p)
+	if !filepath.IsAbs(clean) {
+		return fmt.Errorf("path must be absolute: %q", p)
+	}
+	if strings.Contains(clean, "..") {
+		return fmt.Errorf("path traversal not allowed: %q", p)
+	}
+	return nil
+}
+
 func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -49,9 +66,12 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 
 	mounts := make([]sandbox.Mount, 0, len(req.AllowedPaths))
 	for _, ap := range req.AllowedPaths {
+		if err := validatePath(ap.Path); err != nil {
+			return nil, fmt.Errorf("invalid allowed_path: %w", err)
+		}
 		mounts = append(mounts, sandbox.Mount{
-			Source:   ap.Path,
-			Target:   ap.Path,
+			Source:   filepath.Clean(ap.Path),
+			Target:   filepath.Clean(ap.Path),
 			ReadOnly: ap.ReadOnly,
 		})
 	}
@@ -83,5 +103,36 @@ func handleHealth(version string) HealthResponse {
 		OK:       true,
 		Platform: runtime.GOOS,
 		Version:  version,
+	}
+}
+
+// errHTTPValidation is a sentinel for 400-worthy errors from handleRun.
+var errHTTPValidation = errors.New("validation error")
+
+// isValidationError reports whether the error should produce an HTTP 400.
+func isValidationError(err error) bool {
+	return errors.Is(err, errHTTPValidation) ||
+		strings.Contains(err.Error(), "invalid allowed_path")
+}
+
+// handleHTTPRunValidating wraps handleRun and returns 400 on path validation errors.
+func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
+		var req RunRequest
+		if err := decodeJSON(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		resp, err := h.run(r.Context(), req)
+		if err != nil {
+			if isValidationError(err) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }

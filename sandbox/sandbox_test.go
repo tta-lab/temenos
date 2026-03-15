@@ -51,6 +51,8 @@ func TestUnavailableSandbox_IsAvailable(t *testing.T) {
 }
 
 func TestBuildEnv(t *testing.T) {
+	t.Setenv("GOPATH", "/test/gopath")
+
 	cfg := &ExecConfig{
 		Env: []string{"FOO=bar", "BAZ=qux"},
 	}
@@ -66,7 +68,7 @@ func TestBuildEnv(t *testing.T) {
 		}
 	}
 	assert.Contains(t, pathEntry, "/usr/bin:/usr/local/bin:/bin:")
-	assert.Contains(t, pathEntry, "/go/bin") // gopath/bin appended
+	assert.Contains(t, pathEntry, "/test/gopath/bin") // pinned GOPATH/bin
 	assert.Contains(t, env, "HOME=/home/agent")
 	assert.Contains(t, env, "FOO=bar")
 	assert.Contains(t, env, "BAZ=qux")

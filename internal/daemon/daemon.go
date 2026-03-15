@@ -2,28 +2,38 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/tta-lab/temenos/sandbox"
 )
 
+const shutdownTimeout = 10 * time.Second
+
 // DefaultSocketPath returns ~/.ttal/temenos.sock.
 // Override via TEMENOS_SOCKET_PATH.
-func DefaultSocketPath() string {
+func DefaultSocketPath() (string, error) {
 	if p := os.Getenv("TEMENOS_SOCKET_PATH"); p != "" {
-		return p
+		return p, nil
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".ttal", "temenos.sock")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("temenos: cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".ttal", "temenos.sock"), nil
 }
 
-// Run starts the temenos daemon. Blocks until signal.
+// Run starts the temenos daemon. Blocks until signal or server error.
 func Run(version string) error {
-	sockPath := DefaultSocketPath()
+	sockPath, err := DefaultSocketPath()
+	if err != nil {
+		return err
+	}
 
 	// Ensure parent dir exists
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
@@ -40,7 +50,7 @@ func Run(version string) error {
 	tracker := NewProcessTracker()
 	defer tracker.KillAll()
 
-	srv, err := listenHTTP(sockPath, httpHandlers{
+	srv, serveErr, err := listenHTTP(sockPath, httpHandlers{
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
 			return handleRun(ctx, sbx, req)
 		},
@@ -52,11 +62,19 @@ func Run(version string) error {
 
 	slog.Info("temenos daemon started", "socket", sockPath)
 
-	// Wait for signal
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
 
-	slog.Info("temenos daemon shutting down")
-	return srv.Shutdown(context.Background())
+	select {
+	case <-sig:
+		slog.Info("temenos daemon shutting down")
+	case err := <-serveErr:
+		if err != nil {
+			return fmt.Errorf("temenos: HTTP server failed: %w", err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	return srv.Shutdown(ctx)
 }

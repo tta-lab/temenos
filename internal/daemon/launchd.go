@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,14 +47,23 @@ func Uninstall() error {
 	} else {
 		uid := os.Getuid()
 		cmd := exec.Command("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, daemonPlistLabel))
-		cmd.Run() //nolint:errcheck
+		if out, err := cmd.CombinedOutput(); err != nil {
+			outStr := strings.TrimSpace(string(out))
+			if !strings.Contains(outStr, "No such process") && !strings.Contains(outStr, "3:") {
+				slog.Warn("launchctl bootout failed during uninstall", "err", outStr)
+			}
+		}
 
-		os.Remove(plistPath) //nolint:errcheck
+		if err := os.Remove(plistPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("failed to remove plist %s: %w", plistPath, err)
+		}
 		fmt.Printf("Removed daemon plist: %s\n", plistPath)
 	}
 
-	sockPath := DefaultSocketPath()
-	os.Remove(sockPath) //nolint:errcheck
+	sockPath, err := DefaultSocketPath()
+	if err == nil {
+		os.Remove(sockPath) //nolint:errcheck
+	}
 
 	fmt.Println("Daemon uninstalled. Logs preserved.")
 	return nil
@@ -60,13 +71,20 @@ func Uninstall() error {
 
 // Status prints whether the temenos daemon is running.
 func Status() error {
-	label := daemonPlistLabel
 	uid := os.Getuid()
-	cmd := exec.Command("launchctl", "list", label)
+	cmd := exec.Command("launchctl", "list", daemonPlistLabel)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("Daemon not running (label: %s, uid: %d)\n", label, uid)
-		return nil
+		// Distinguish "not found" from real errors (permission denied, launchd broken, etc.)
+		if errors.Is(err, exec.ErrNotFound) {
+			return fmt.Errorf("launchctl not found: %w", err)
+		}
+		outStr := strings.TrimSpace(string(out))
+		if strings.Contains(outStr, "Could not find service") || strings.Contains(outStr, "113:") {
+			fmt.Printf("Daemon not running (label: %s, uid: %d)\n", daemonPlistLabel, uid)
+			return nil
+		}
+		return fmt.Errorf("launchctl list failed: %s", outStr)
 	}
 	fmt.Printf("Daemon running:\n%s\n", strings.TrimSpace(string(out)))
 	return nil
@@ -131,9 +149,14 @@ func installDaemonPlist(home, temenosBin, dataDir string) error {
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", daemonPlistLabel+".plist")
 
 	uid := os.Getuid()
-	// Remove existing service before reinstalling
+	// Unload existing service before reinstalling. "No such process" (3:) is expected on first install.
 	cmd := exec.Command("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, daemonPlistLabel))
-	cmd.Run() //nolint:errcheck
+	if out, err := cmd.CombinedOutput(); err != nil {
+		outStr := strings.TrimSpace(string(out))
+		if !strings.Contains(outStr, "No such process") && !strings.Contains(outStr, "3:") {
+			slog.Warn("pre-install bootout failed", "err", outStr)
+		}
+	}
 
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -3,13 +3,20 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+)
+
+const (
+	serverReadTimeout  = 30 * time.Second
+	serverWriteTimeout = 120 * time.Second
 )
 
 type httpHandlers struct {
@@ -20,25 +27,9 @@ type httpHandlers struct {
 func newRouter(h httpHandlers) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
-	r.Post("/run", handleHTTPRun(h))
+	r.Post("/run", handleHTTPRunValidating(h))
 	r.Get("/health", handleHTTPHealth(h))
 	return r
-}
-
-func handleHTTPRun(h httpHandlers) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req RunRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		resp, err := h.run(r.Context(), req)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, resp)
-	}
 }
 
 func handleHTTPHealth(h httpHandlers) http.HandlerFunc {
@@ -55,25 +46,39 @@ func writeJSON(w http.ResponseWriter, statusCode int, v interface{}) {
 	}
 }
 
-func listenHTTP(sockPath string, h httpHandlers) (*http.Server, error) {
+// decodeJSON decodes JSON from the request body (already limited by MaxBytesReader).
+func decodeJSON(r *http.Request, v interface{}) error {
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
+// listenHTTP starts an HTTP server on a unix socket.
+// Errors from Serve are forwarded to Run() via the returned server's closeErr channel.
+func listenHTTP(sockPath string, h httpHandlers) (*http.Server, <-chan error, error) {
 	if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
 		log.Printf("[daemon] warning: could not remove stale socket %s: %v", sockPath, err)
 	}
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := os.Chmod(sockPath, 0o600); err != nil {
 		_ = ln.Close()
-		return nil, err
+		return nil, nil, err
 	}
 
-	srv := &http.Server{Handler: newRouter(h)}
+	srv := &http.Server{
+		Handler:      newRouter(h),
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+	}
+
+	serveErr := make(chan error, 1)
 	go func() {
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			log.Printf("[daemon] HTTP server error: %v", err)
+		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
 		}
+		close(serveErr)
 	}()
-	return srv, nil
+	return srv, serveErr, nil
 }

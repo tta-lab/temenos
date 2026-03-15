@@ -12,9 +12,10 @@
   (global-name "com.apple.SystemConfiguration.configd")
   (global-name "com.apple.SystemConfiguration.NetworkInformation"))
 
-; TLS certificate cache — uses user cache dir.
+; TLS certificate cache — scoped to com.apple.trustd only.
+; The full DARWIN_USER_CACHE_DIR subpath was too broad (covered browser caches, Xcode, etc.).
 (allow file-read* file-write*
-  (subpath (param "DARWIN_USER_CACHE_DIR")))
+  (subpath (string-append (param "DARWIN_USER_CACHE_DIR") "/com.apple.trustd")))
 
 ; DNS via mDNSResponder.
 (allow network-outbound

@@ -19,15 +19,28 @@ type Client struct {
 	baseURL    string
 }
 
+// defaultSocketPath resolves the temenos socket path, mirroring daemon.DefaultSocketPath.
+// TEMENOS_SOCKET_PATH overrides the default ~/.ttal/temenos.sock.
+func defaultSocketPath() (string, error) {
+	if p := os.Getenv("TEMENOS_SOCKET_PATH"); p != "" {
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("temenos: cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".ttal", "temenos.sock"), nil
+}
+
 // New creates a client connected to the temenos daemon socket.
-// If socketPath is empty, uses the default ~/.ttal/temenos.sock (or TEMENOS_SOCKET_PATH).
-func New(socketPath string) *Client {
+// If socketPath is empty, the default is resolved from TEMENOS_SOCKET_PATH or ~/.ttal/temenos.sock.
+// Returns an error if the socket path cannot be resolved.
+func New(socketPath string) (*Client, error) {
 	if socketPath == "" {
-		if p := os.Getenv("TEMENOS_SOCKET_PATH"); p != "" {
-			socketPath = p
-		} else {
-			home, _ := os.UserHomeDir()
-			socketPath = filepath.Join(home, ".ttal", "temenos.sock")
+		var err error
+		socketPath, err = defaultSocketPath()
+		if err != nil {
+			return nil, err
 		}
 	}
 	return &Client{
@@ -40,7 +53,7 @@ func New(socketPath string) *Client {
 			Timeout: 120 * time.Second,
 		},
 		baseURL: "http://temenos",
-	}
+	}, nil
 }
 
 // RunRequest is the body for POST /run.
