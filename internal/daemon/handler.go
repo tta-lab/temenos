@@ -2,12 +2,12 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/tta-lab/temenos/sandbox"
@@ -45,14 +45,15 @@ type HealthResponse struct {
 	Version  string `json:"version"`
 }
 
-// validatePath rejects paths that are not absolute or contain traversal components.
+// errHTTPValidation is the sentinel for 400-worthy request errors.
+var errHTTPValidation = errors.New("validation error")
+
+// validatePath rejects paths that are not absolute.
+// filepath.Clean resolves all ".." components before the IsAbs check,
+// so an absolute clean path is fully safe.
 func validatePath(p string) error {
-	clean := filepath.Clean(p)
-	if !filepath.IsAbs(clean) {
+	if !filepath.IsAbs(filepath.Clean(p)) {
 		return fmt.Errorf("path must be absolute: %q", p)
-	}
-	if strings.Contains(clean, "..") {
-		return fmt.Errorf("path traversal not allowed: %q", p)
 	}
 	return nil
 }
@@ -67,7 +68,7 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 	mounts := make([]sandbox.Mount, 0, len(req.AllowedPaths))
 	for _, ap := range req.AllowedPaths {
 		if err := validatePath(ap.Path); err != nil {
-			return nil, fmt.Errorf("invalid allowed_path: %w", err)
+			return nil, fmt.Errorf("%w: %w", errHTTPValidation, err)
 		}
 		mounts = append(mounts, sandbox.Mount{
 			Source:   filepath.Clean(ap.Path),
@@ -106,27 +107,19 @@ func handleHealth(version string) HealthResponse {
 	}
 }
 
-// errHTTPValidation is a sentinel for 400-worthy errors from handleRun.
-var errHTTPValidation = errors.New("validation error")
-
-// isValidationError reports whether the error should produce an HTTP 400.
-func isValidationError(err error) bool {
-	return errors.Is(err, errHTTPValidation) ||
-		strings.Contains(err.Error(), "invalid allowed_path")
-}
-
-// handleHTTPRunValidating wraps handleRun and returns 400 on path validation errors.
+// handleHTTPRunValidating decodes the request, enforces a 1 MiB body limit,
+// and returns HTTP 400 for validation errors, 500 for sandbox errors.
 func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
 		var req RunRequest
-		if err := decodeJSON(r, &req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		resp, err := h.run(r.Context(), req)
 		if err != nil {
-			if isValidationError(err) {
+			if errors.Is(err, errHTTPValidation) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}

@@ -46,11 +46,6 @@ func writeJSON(w http.ResponseWriter, statusCode int, v interface{}) {
 	}
 }
 
-// decodeJSON decodes JSON from the request body (already limited by MaxBytesReader).
-func decodeJSON(r *http.Request, v interface{}) error {
-	return json.NewDecoder(r.Body).Decode(v)
-}
-
 // listenHTTP starts an HTTP server on a unix socket.
 // Errors from Serve are forwarded to Run() via the returned server's closeErr channel.
 func listenHTTP(sockPath string, h httpHandlers) (*http.Server, <-chan error, error) {
