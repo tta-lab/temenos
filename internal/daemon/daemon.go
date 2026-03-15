@@ -28,16 +28,31 @@ func DefaultSocketPath() (string, error) {
 	return filepath.Join(home, ".ttal", "temenos.sock"), nil
 }
 
+// listenAddr resolves the daemon listen address.
+// Priority:
+//  1. TEMENOS_LISTEN_ADDR (e.g. ":8081" for TCP, "/path/to/sock" for unix)
+//  2. TEMENOS_SOCKET_PATH (unix socket path, backward compat via DefaultSocketPath)
+//  3. Default: ~/.ttal/temenos.sock
+func listenAddr() (string, error) {
+	if addr := os.Getenv("TEMENOS_LISTEN_ADDR"); addr != "" {
+		return addr, nil
+	}
+	return DefaultSocketPath()
+}
+
 // Run starts the temenos daemon. Blocks until signal or server error.
 func Run(version string) error {
-	sockPath, err := DefaultSocketPath()
+	addr, err := listenAddr()
 	if err != nil {
 		return err
 	}
 
-	// Ensure parent dir exists
-	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
-		return err
+	// Ensure parent dir exists (only matters for socket mode)
+	network, resolvedAddr := parseListenAddr(addr)
+	if network == networkUnix {
+		if err := os.MkdirAll(filepath.Dir(resolvedAddr), 0o755); err != nil {
+			return err
+		}
 	}
 
 	sbx := sandbox.New(sandbox.Options{
@@ -50,7 +65,7 @@ func Run(version string) error {
 	tracker := NewProcessTracker()
 	defer tracker.KillAll()
 
-	srv, serveErr, err := listenHTTP(sockPath, httpHandlers{
+	srv, serveErr, err := listenHTTP(addr, httpHandlers{
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
 			return handleRun(ctx, sbx, req)
 		},
@@ -60,7 +75,7 @@ func Run(version string) error {
 		return err
 	}
 
-	slog.Info("temenos daemon started", "socket", sockPath)
+	slog.Info("temenos daemon started", "listen", resolvedAddr, "network", network)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

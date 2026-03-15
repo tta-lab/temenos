@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-// Client talks to the temenos daemon over unix socket.
+// Client talks to the temenos daemon over unix socket or TCP.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
@@ -32,27 +33,68 @@ func defaultSocketPath() (string, error) {
 	return filepath.Join(home, ".ttal", "temenos.sock"), nil
 }
 
-// New creates a client connected to the temenos daemon socket.
-// If socketPath is empty, the default is resolved from TEMENOS_SOCKET_PATH or ~/.ttal/temenos.sock.
-// Returns an error if the socket path cannot be resolved.
-func New(socketPath string) (*Client, error) {
-	if socketPath == "" {
+// resolveAddr resolves the daemon address from environment.
+// Priority: TEMENOS_LISTEN_ADDR → TEMENOS_SOCKET_PATH → default socket.
+func resolveAddr() (string, error) {
+	if addr := os.Getenv("TEMENOS_LISTEN_ADDR"); addr != "" {
+		return addr, nil
+	}
+	return defaultSocketPath()
+}
+
+// defaultHTTPTimeout is the client timeout for all transport types.
+// NOTE: address-format detection (path prefix → unix, everything else → tcp) is
+// intentionally duplicated in daemon/socket.go parseListenAddr. Both packages
+// use the same rule; a shared internal/addrutil package would be cleaner but adds
+// module complexity. Keep in sync if the rule ever changes.
+const defaultHTTPTimeout = 120 * time.Second
+
+// New creates a client connected to the temenos daemon.
+// addr formats:
+//   - Empty string: resolve from TEMENOS_LISTEN_ADDR → TEMENOS_SOCKET_PATH → default socket
+//   - Starts with "/" or ".": unix socket path
+//   - Starts with "http://": HTTP base URL (TCP)
+//   - Otherwise (e.g. ":8081", "localhost:8081"): TCP, auto-prefixed with http://
+//
+// HTTPS is not supported — the daemon serves plain HTTP only.
+func New(addr string) (*Client, error) {
+	if addr == "" {
 		var err error
-		socketPath, err = defaultSocketPath()
+		addr, err = resolveAddr()
 		if err != nil {
 			return nil, err
 		}
 	}
-	return &Client{
-		httpClient: &http.Client{
-			Transport: &http.Transport{
-				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", socketPath)
+
+	if strings.HasPrefix(addr, "https://") {
+		return nil, fmt.Errorf("temenos: HTTPS is not supported; use http:// or a bare host:port")
+	}
+
+	if strings.HasPrefix(addr, "http://") {
+		return &Client{
+			httpClient: &http.Client{Timeout: defaultHTTPTimeout},
+			baseURL:    strings.TrimSuffix(addr, "/"),
+		}, nil
+	}
+
+	if strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, ".") {
+		return &Client{
+			httpClient: &http.Client{
+				Transport: &http.Transport{
+					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+						return net.Dial("unix", addr)
+					},
 				},
+				Timeout: defaultHTTPTimeout,
 			},
-			Timeout: 120 * time.Second,
-		},
-		baseURL: "http://temenos",
+			baseURL: "http://temenos",
+		}, nil
+	}
+
+	// Bare host:port — treat as TCP
+	return &Client{
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
+		baseURL:    "http://" + addr,
 	}, nil
 }
 
