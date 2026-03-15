@@ -62,7 +62,7 @@ func Uninstall() error {
 func Status() error {
 	label := daemonPlistLabel
 	uid := os.Getuid()
-	cmd := exec.Command("launchctl", "list", fmt.Sprintf("%s", label))
+	cmd := exec.Command("launchctl", "list", label)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		fmt.Printf("Daemon not running (label: %s, uid: %d)\n", label, uid)

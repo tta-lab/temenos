@@ -47,7 +47,7 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 		defer cancel()
 	}
 
-	var mounts []sandbox.Mount
+	mounts := make([]sandbox.Mount, 0, len(req.AllowedPaths))
 	for _, ap := range req.AllowedPaths {
 		mounts = append(mounts, sandbox.Mount{
 			Source:   ap.Path,
@@ -56,7 +56,7 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 		})
 	}
 
-	var envSlice []string
+	envSlice := make([]string, 0, len(req.Env))
 	for k, v := range req.Env {
 		envSlice = append(envSlice, k+"="+v)
 	}

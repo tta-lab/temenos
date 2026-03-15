@@ -3,10 +3,9 @@ package daemon
 import "sync"
 
 // ProcessTracker is scaffolding for Phase 2 (GET /ps, DELETE /kill).
-// MVP: tracks count only. Phase 2 adds PID map and KillAll.
+// MVP: no-op. Phase 2 adds PID map and KillAll.
 type ProcessTracker struct {
-	mu    sync.Mutex
-	count int
+	mu sync.Mutex
 }
 
 // NewProcessTracker creates a new ProcessTracker.

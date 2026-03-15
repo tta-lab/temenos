@@ -65,7 +65,7 @@ func listenHTTP(sockPath string, h httpHandlers) (*http.Server, error) {
 		return nil, err
 	}
 	if err := os.Chmod(sockPath, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return nil, err
 	}
 
