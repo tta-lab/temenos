@@ -16,8 +16,7 @@ RUN apk add --no-cache \
 
 COPY --from=builder /app/temenos /usr/local/bin/temenos
 
-# Default socket path inside container
-ENV TEMENOS_SOCKET_PATH=/tmp/temenos.sock
-
+ENV TEMENOS_LISTEN_ADDR=:8081
+EXPOSE 8081
 USER nobody
 CMD ["temenos", "daemon"]

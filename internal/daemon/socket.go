@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,7 @@ import (
 const (
 	serverReadTimeout  = 30 * time.Second
 	serverWriteTimeout = 120 * time.Second
+	networkUnix        = "unix"
 )
 
 type httpHandlers struct {
@@ -46,20 +48,31 @@ func writeJSON(w http.ResponseWriter, statusCode int, v interface{}) {
 	}
 }
 
-// listenHTTP starts an HTTP server on a unix socket.
+// listenHTTP starts an HTTP server on a unix socket or TCP address.
+// addr format:
+//   - Unix socket: starts with "/" or "." (absolute/relative path)
+//   - TCP: anything else, e.g. ":8081", "0.0.0.0:8081"
+//
 // Errors from Serve are forwarded to Run() via the returned server's closeErr channel.
-func listenHTTP(sockPath string, h httpHandlers) (*http.Server, <-chan error, error) {
-	if err := os.Remove(sockPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("[daemon] warning: could not remove stale socket %s: %v", sockPath, err)
+func listenHTTP(addr string, h httpHandlers) (*http.Server, <-chan error, error) {
+	network, listenAddr := parseListenAddr(addr)
+
+	if network == networkUnix {
+		if err := os.Remove(listenAddr); err != nil && !os.IsNotExist(err) {
+			log.Printf("[daemon] warning: could not remove stale socket %s: %v", listenAddr, err)
+		}
 	}
 
-	ln, err := net.Listen("unix", sockPath)
+	ln, err := net.Listen(network, listenAddr)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := os.Chmod(sockPath, 0o600); err != nil {
-		_ = ln.Close()
-		return nil, nil, err
+
+	if network == networkUnix {
+		if err := os.Chmod(listenAddr, 0o600); err != nil {
+			_ = ln.Close()
+			return nil, nil, err
+		}
 	}
 
 	srv := &http.Server{
@@ -76,4 +89,13 @@ func listenHTTP(sockPath string, h httpHandlers) (*http.Server, <-chan error, er
 		close(serveErr)
 	}()
 	return srv, serveErr, nil
+}
+
+// parseListenAddr determines network type from address format.
+// Paths (starting with / or .) → unix socket. Everything else → TCP.
+func parseListenAddr(addr string) (network, listenAddr string) {
+	if strings.HasPrefix(addr, "/") || strings.HasPrefix(addr, ".") {
+		return networkUnix, addr
+	}
+	return "tcp", addr
 }
