@@ -1,0 +1,56 @@
+version: 2
+project_name: temenos
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^chore"
+
+brews:
+  - name: temenos
+    commit_author:
+      name: tta-lab-bot
+      email: bot@tta-lab.com
+    commit_msg_template: "feat(formula): update {{ .ProjectName }} to {{ .Tag }}"
+    directory: Formula
+    homepage: "https://github.com/tta-lab/temenos"
+    description: "Sandbox daemon for AI agents — filesystem isolation via seatbelt and bubblewrap"
+    license: "MIT"
+    install: |
+      bin.install "temenos"
+      generate_completions_from_executable(bin/"temenos", "completion")
+    test: |
+      system "#{bin}/temenos", "version"
+    repository:
+      owner: tta-lab
+      name: homebrew-ttal
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"

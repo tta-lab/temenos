@@ -1,0 +1,59 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - copyloopvar
+    - dupl
+    - errcheck
+    - goconst
+    - gocyclo
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - nakedret
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (*os.File).Close
+        - os.Remove
+        - fmt.Fprintf
+        - os.Mkdir
+        - os.WriteFile
+    revive:
+      rules:
+        - name: comment-spacings
+        - name: import-shadowing
+    gocyclo:
+      min-complexity: 15
+    lll:
+      line-length: 120
+
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
