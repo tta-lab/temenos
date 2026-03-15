@@ -1,0 +1,128 @@
+; Inspired by Codex CLI's sandbox policy (based on Chrome's macOS sandbox).
+; https://source.chromium.org/chromium/chromium/src/+/main:sandbox/policy/mac/common.sb
+(version 1)
+(deny default)
+
+; Child processes inherit the policy of their parent.
+(allow process-exec)
+(allow process-fork)
+(allow signal (target same-sandbox))
+
+; Process info for self and sandbox children.
+(allow process-info* (target same-sandbox))
+
+; Sysctls permitted.
+(allow sysctl-read
+  (sysctl-name-prefix "hw.")
+  (sysctl-name-prefix "kern.proc.pid.")
+  (sysctl-name-prefix "kern.proc.pgrp.")
+  (sysctl-name "kern.argmax")
+  (sysctl-name "kern.hostname")
+  (sysctl-name "kern.maxfilesperproc")
+  (sysctl-name "kern.maxproc")
+  (sysctl-name "kern.osproductversion")
+  (sysctl-name "kern.osrelease")
+  (sysctl-name "kern.ostype")
+  (sysctl-name "kern.osvariant_status")
+  (sysctl-name "kern.osversion")
+  (sysctl-name "kern.version")
+  (sysctl-name "sysctl.proc_cputype")
+  (sysctl-name "vm.loadavg")
+  (sysctl-name "vm.pagesize"))
+
+; IOKit access for root domain services.
+(allow iokit-open
+  (iokit-registry-entry-class "RootDomainUserClient"))
+
+; macOS Standard library queries opendirectoryd at startup.
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))
+
+; Allow IPC to system services needed for normal operation.
+(allow mach-lookup
+  (global-name "com.apple.analyticsd")
+  (global-name "com.apple.bsd.dirhelper")
+  (global-name "com.apple.cfprefsd.agent")
+  (global-name "com.apple.cfprefsd.daemon")
+  (global-name "com.apple.logd")
+  (global-name "com.apple.logd.events")
+  (global-name "com.apple.PowerManagement.control")
+  (global-name "com.apple.runningboard")
+  (global-name "com.apple.secinitd")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
+  (global-name "com.apple.system.logger")
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.system.opendirectoryd.membership")
+  (global-name "com.apple.trustd")
+  (global-name "com.apple.trustd.agent")
+  (local-name "com.apple.cfprefsd.agent"))
+
+; Allow IPC to the syslog socket for logging.
+(allow network-outbound (literal "/private/var/run/syslog"))
+
+; Allow guarded vnodes (needed by dyld).
+(allow system-mac-syscall (mac-policy-name "vnguard"))
+
+; Allow sandbox introspection (needed for dyld to detect sandbox state).
+(allow system-mac-syscall
+  (require-all
+    (mac-policy-name "Sandbox")
+    (mac-syscall-number 67)))
+
+; Allow FSIOC_CAS_BSDFLAGS as alternate chflags.
+(allow system-fsctl (fsctl-command FSIOC_CAS_BSDFLAGS))
+
+; Needed for Python multiprocessing SemLock.
+(allow ipc-posix-sem)
+
+; Allow openpty().
+(allow pseudo-tty)
+(allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))
+(allow file-read* file-write*
+  (require-all
+    (regex #"^/dev/ttys[0-9]+")
+    (extension "com.apple.sandbox.pty")))
+; PTYs created before entering sandbox may lack the extension.
+(allow file-ioctl (regex #"^/dev/ttys[0-9]+"))
+
+; Standard special files.
+(allow file-read* file-test-existence
+  (literal "/dev/autofs_nowait")
+  (literal "/dev/random")
+  (literal "/dev/urandom")
+  (literal "/private/etc/master.passwd")
+  (literal "/private/etc/passwd")
+  (literal "/private/etc/protocols")
+  (literal "/private/etc/services"))
+
+; Null/zero read/write.
+(allow file-read* file-test-existence file-write-data
+  (literal "/dev/null")
+  (literal "/dev/zero"))
+
+; File descriptor access.
+(allow file-read-data file-test-existence file-write-data
+  (subpath "/dev/fd"))
+
+; dtrace helper.
+(allow file-read* file-test-existence file-write-data file-ioctl
+  (literal "/dev/dtracehelper"))
+
+; Allow processes to get their current working directory.
+(allow file-read* file-test-existence
+  (literal "/"))
+
+; Allow resolution of standard system symlinks.
+(allow file-read-metadata file-test-existence
+  (literal "/etc")
+  (literal "/tmp")
+  (literal "/var")
+  (literal "/private/etc/localtime"))
+
+; Allow stat'ing of firmlink parent path components.
+(allow file-read-metadata file-test-existence
+  (path-ancestors "/System/Volumes/Data/private"))
+
+; Some processes read /var metadata during startup.
+(allow file-read-metadata
+  (subpath "/var")
+  (subpath "/private/var"))
