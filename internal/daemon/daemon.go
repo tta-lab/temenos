@@ -48,9 +48,9 @@ func Run(version string) error {
 	}
 
 	// Ensure parent dir exists (only matters for socket mode)
-	network, _ := parseListenAddr(addr)
+	network, resolvedAddr := parseListenAddr(addr)
 	if network == networkUnix {
-		if err := os.MkdirAll(filepath.Dir(addr), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(resolvedAddr), 0o755); err != nil {
 			return err
 		}
 	}
@@ -75,7 +75,7 @@ func Run(version string) error {
 		return err
 	}
 
-	slog.Info("temenos daemon started", "listen", addr, "network", network)
+	slog.Info("temenos daemon started", "listen", resolvedAddr, "network", network)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

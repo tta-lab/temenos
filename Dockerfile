@@ -16,6 +16,7 @@ RUN apk add --no-cache \
 
 COPY --from=builder /app/temenos /usr/local/bin/temenos
 
+# TCP mode: unauthenticated plain HTTP. Restrict access via Kubernetes NetworkPolicy.
 ENV TEMENOS_LISTEN_ADDR=:8081
 EXPOSE 8081
 USER nobody

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -27,9 +28,9 @@ func TestNewClientTransport(t *testing.T) {
 			baseURL: "http://localhost:8081",
 		},
 		{
-			name:    "https URL",
+			name:    "https URL rejected",
 			addr:    "https://temenos.svc:8081",
-			baseURL: "https://temenos.svc:8081",
+			wantErr: true,
 		},
 		{
 			name:    "bare host:port",
@@ -93,4 +94,31 @@ func TestResolveAddrFromEnv(t *testing.T) {
 			t.Errorf("resolveAddr() = %q; want %q", addr, "/tmp/custom.sock")
 		}
 	})
+
+	t.Run("default socket path fallback", func(t *testing.T) {
+		t.Setenv("TEMENOS_LISTEN_ADDR", "")
+		t.Setenv("TEMENOS_SOCKET_PATH", "")
+
+		addr, err := resolveAddr()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.HasSuffix(addr, ".ttal/temenos.sock") {
+			t.Errorf("resolveAddr() = %q; want suffix .ttal/temenos.sock", addr)
+		}
+	})
+}
+
+func TestNewEmptyAddrResolvesViaEnv(t *testing.T) {
+	t.Setenv("TEMENOS_LISTEN_ADDR", "/tmp/env-resolved.sock")
+	t.Setenv("TEMENOS_SOCKET_PATH", "")
+
+	c, err := New("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// env resolved to a unix path — must use unix transport (baseURL = http://temenos)
+	if c.baseURL != "http://temenos" {
+		t.Errorf("baseURL = %q; want http://temenos (unix transport)", c.baseURL)
+	}
 }

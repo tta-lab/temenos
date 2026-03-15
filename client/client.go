@@ -42,12 +42,21 @@ func resolveAddr() (string, error) {
 	return defaultSocketPath()
 }
 
+// defaultHTTPTimeout is the client timeout for all transport types.
+// NOTE: address-format detection (path prefix → unix, everything else → tcp) is
+// intentionally duplicated in daemon/socket.go parseListenAddr. Both packages
+// use the same rule; a shared internal/addrutil package would be cleaner but adds
+// module complexity. Keep in sync if the rule ever changes.
+const defaultHTTPTimeout = 120 * time.Second
+
 // New creates a client connected to the temenos daemon.
 // addr formats:
 //   - Empty string: resolve from TEMENOS_LISTEN_ADDR → TEMENOS_SOCKET_PATH → default socket
 //   - Starts with "/" or ".": unix socket path
-//   - Starts with "http://" or "https://": HTTP base URL (TCP)
+//   - Starts with "http://": HTTP base URL (TCP)
 //   - Otherwise (e.g. ":8081", "localhost:8081"): TCP, auto-prefixed with http://
+//
+// HTTPS is not supported — the daemon serves plain HTTP only.
 func New(addr string) (*Client, error) {
 	if addr == "" {
 		var err error
@@ -57,10 +66,14 @@ func New(addr string) (*Client, error) {
 		}
 	}
 
-	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+	if strings.HasPrefix(addr, "https://") {
+		return nil, fmt.Errorf("temenos: HTTPS is not supported; use http:// or a bare host:port")
+	}
+
+	if strings.HasPrefix(addr, "http://") {
 		return &Client{
-			httpClient: &http.Client{Timeout: 120 * time.Second},
-			baseURL:    strings.TrimRight(addr, "/"),
+			httpClient: &http.Client{Timeout: defaultHTTPTimeout},
+			baseURL:    strings.TrimSuffix(addr, "/"),
 		}, nil
 	}
 
@@ -72,7 +85,7 @@ func New(addr string) (*Client, error) {
 						return net.Dial("unix", addr)
 					},
 				},
-				Timeout: 120 * time.Second,
+				Timeout: defaultHTTPTimeout,
 			},
 			baseURL: "http://temenos",
 		}, nil
@@ -80,7 +93,7 @@ func New(addr string) (*Client, error) {
 
 	// Bare host:port — treat as TCP
 	return &Client{
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 		baseURL:    "http://" + addr,
 	}, nil
 }

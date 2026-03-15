@@ -53,6 +53,10 @@ func writeJSON(w http.ResponseWriter, statusCode int, v interface{}) {
 //   - Unix socket: starts with "/" or "." (absolute/relative path)
 //   - TCP: anything else, e.g. ":8081", "0.0.0.0:8081"
 //
+// Security note: unix sockets are protected with 0o600 filesystem permissions.
+// TCP mode has no authentication — access control is delegated to the network layer
+// (e.g. Kubernetes NetworkPolicy). Do not expose the TCP port outside a trusted network.
+//
 // Errors from Serve are forwarded to Run() via the returned server's closeErr channel.
 func listenHTTP(addr string, h httpHandlers) (*http.Server, <-chan error, error) {
 	network, listenAddr := parseListenAddr(addr)
