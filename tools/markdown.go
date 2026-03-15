@@ -277,6 +277,44 @@ func renderTree(headings []mdHeading, source []byte) string {
 	return sb.String()
 }
 
+// MarkdownResult holds the output of a markdown render operation.
+type MarkdownResult struct {
+	Content string // rendered content (full text, tree, or section)
+	Mode    string // "full", "tree", or "section"
+}
+
+// RenderMarkdownContent renders markdown source bytes with tree/section/full modes.
+// treeThreshold: auto-switch to tree above this char count (default 5000 if ≤ 0).
+func RenderMarkdownContent(
+	source []byte, tree bool, section string, full bool, treeThreshold int,
+) (*MarkdownResult, error) {
+	if treeThreshold <= 0 {
+		treeThreshold = DefaultTreeThreshold
+	}
+
+	headings := parseHeadings(source)
+	assignIDs(headings)
+
+	if section != "" {
+		content, err := extractSection(source, headings, section)
+		if err != nil {
+			return nil, err
+		}
+		return &MarkdownResult{Content: content, Mode: "section"}, nil
+	}
+
+	charCount := utf8.RuneCountInString(string(source))
+
+	if tree || (!full && charCount > treeThreshold) {
+		if len(headings) == 0 {
+			return &MarkdownResult{Content: truncateContent(string(source)), Mode: "full"}, nil
+		}
+		return &MarkdownResult{Content: renderTree(headings, source), Mode: "tree"}, nil
+	}
+
+	return &MarkdownResult{Content: truncateContent(string(source)), Mode: "full"}, nil
+}
+
 // formatNum formats an integer with thousands separators.
 func formatNum(n int) string {
 	s := fmt.Sprintf("%d", n)
