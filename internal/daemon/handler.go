@@ -85,4 +85,3 @@ func handleHealth(version string) HealthResponse {
 		Version:  version,
 	}
 }
-
