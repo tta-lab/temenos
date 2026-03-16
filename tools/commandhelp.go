@@ -24,7 +24,7 @@ var (
 	}
 	SearchCommand = CommandHelp{
 		Name:    "temenos search",
-		Summary: "Search the web via DuckDuckGo",
+		Summary: "Search the web via Brave Search (DuckDuckGo fallback)",
 		Help:    searchHelp,
 	}
 )

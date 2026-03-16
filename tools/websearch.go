@@ -3,29 +3,33 @@ package tools
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"time"
+	"os"
 )
 
-// Search performs a web search via DuckDuckGo Lite and returns formatted results.
-// maxResults defaults to 10 if ≤ 0, capped at 20.
-// Uses a simple one-shot HTTP client — the fantasy tool (NewSearchWebTool) keeps a
-// separate long-lived client with connection pooling for repeated searches.
+// WebSearcher performs web searches and returns structured results.
+type WebSearcher interface {
+	Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error)
+}
+
+// Search performs a web search using the best available backend.
+// Backend selection: BRAVE_API_KEY → Brave, otherwise → DuckDuckGo Lite.
 func Search(ctx context.Context, query string, maxResults int) (string, error) {
 	if query == "" {
 		return "", fmt.Errorf("query is required")
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	if err := maybeDelaySearch(ctx); err != nil {
-		return "", fmt.Errorf("search cancelled: %w", err)
-	}
-
-	results, err := searchDuckDuckGo(ctx, client, query, normalizeMaxResults(maxResults))
+	searcher := resolveSearcher()
+	results, err := searcher.Search(ctx, query, normalizeMaxResults(maxResults))
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
 	}
-
 	return formatSearchResults(results), nil
+}
+
+// resolveSearcher returns the best available search backend.
+func resolveSearcher() WebSearcher {
+	if key := os.Getenv("BRAVE_API_KEY"); key != "" {
+		return NewBraveSearcher(key)
+	}
+	return NewDDGSearcher()
 }
