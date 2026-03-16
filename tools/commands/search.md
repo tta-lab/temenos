@@ -1,11 +1,13 @@
-Search the web via DuckDuckGo.
+Search the web via Brave Search (or DuckDuckGo Lite as fallback).
 
 Flags:
   --max N    Maximum results (default 10, max 20)
 
 Returns title, URL, and snippet for each result.
-Handles rate limiting and anti-bot automatically.
+
+Set BRAVE_API_KEY for Brave Search (recommended).
+Falls back to DuckDuckGo Lite if no API key is set.
 
 Examples:
-  logos search "golang context timeout patterns"
-  logos search "RFC 7231 HTTP semantics" --max 5
+  temenos search "golang context timeout patterns"
+  temenos search "RFC 7231 HTTP semantics" --max 5
