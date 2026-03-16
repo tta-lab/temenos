@@ -1,12 +1,24 @@
 package sandbox
 
 import (
+	"os"
 	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const pathPrefix = "PATH="
+
+func findPathEntry(env []string) string {
+	for _, e := range env {
+		if len(e) >= len(pathPrefix) && e[:len(pathPrefix)] == pathPrefix {
+			return e
+		}
+	}
+	return ""
+}
 
 func TestNew_AllowUnsandboxed_IsAvailable(t *testing.T) {
 	sbx := New(Options{AllowUnsandboxed: true})
@@ -60,13 +72,7 @@ func TestBuildEnv(t *testing.T) {
 	env := buildEnv(cfg, "")
 
 	// PATH should include GOPATH/bin
-	pathEntry := ""
-	for _, e := range env {
-		if len(e) > 5 && e[:5] == "PATH=" {
-			pathEntry = e
-			break
-		}
-	}
+	pathEntry := findPathEntry(env)
 	assert.Contains(t, pathEntry, "/usr/bin:/usr/local/bin:/bin:")
 	assert.Contains(t, pathEntry, "/test/gopath/bin") // pinned GOPATH/bin
 	assert.Contains(t, env, "HOME=/home/agent")
@@ -77,13 +83,7 @@ func TestBuildEnv(t *testing.T) {
 func TestBuildEnv_Nil(t *testing.T) {
 	env := buildEnv(nil, "")
 
-	pathEntry := ""
-	for _, e := range env {
-		if len(e) > 5 && e[:5] == "PATH=" {
-			pathEntry = e
-			break
-		}
-	}
+	pathEntry := findPathEntry(env)
 	assert.Contains(t, pathEntry, "/usr/bin:/usr/local/bin:/bin")
 	assert.Len(t, env, 3) // PATH, HOME, TERM
 }
@@ -91,6 +91,23 @@ func TestBuildEnv_Nil(t *testing.T) {
 func TestBuildEnv_WithHomeDir(t *testing.T) {
 	env := buildEnv(nil, "/tmp/ttal-agent-12345")
 	assert.Contains(t, env, "HOME=/tmp/ttal-agent-12345")
+}
+
+func TestBuildEnv_GOPATHAndHOMEUnset_UsesUserHomeDir(t *testing.T) {
+	t.Setenv("GOPATH", "")
+	t.Setenv("HOME", "")
+
+	// os.UserHomeDir() falls back to a syscall (getpwuid_r) when HOME is unset.
+	// Skip if that syscall is unavailable (e.g. CGO disabled in this environment).
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("os.UserHomeDir() unavailable in this environment (%v) — skipping fallback test", err)
+	}
+
+	env := buildEnv(nil, "")
+
+	pathEntry := findPathEntry(env)
+	assert.Contains(t, pathEntry, userHome+"/go/bin")
 }
 
 func TestTruncate(t *testing.T) {
