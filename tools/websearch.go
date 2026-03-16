@@ -18,7 +18,10 @@ func Search(ctx context.Context, query string, maxResults int) (string, error) {
 		return "", fmt.Errorf("query is required")
 	}
 
-	searcher := resolveSearcher()
+	searcher, err := resolveSearcher()
+	if err != nil {
+		return "", err
+	}
 	results, err := searcher.Search(ctx, query, normalizeMaxResults(maxResults))
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
@@ -27,9 +30,15 @@ func Search(ctx context.Context, query string, maxResults int) (string, error) {
 }
 
 // resolveSearcher returns the best available search backend.
-func resolveSearcher() WebSearcher {
-	if key := os.Getenv("BRAVE_API_KEY"); key != "" {
-		return NewBraveSearcher(key)
+// Returns an error if BRAVE_API_KEY is set but empty — this prevents silently
+// falling back to DuckDuckGo when a user has misconfigured their Brave key.
+func resolveSearcher() (WebSearcher, error) {
+	key, set := os.LookupEnv("BRAVE_API_KEY")
+	if set && key == "" {
+		return nil, fmt.Errorf("BRAVE_API_KEY is set but empty; provide a valid key or unset it to use DuckDuckGo")
 	}
-	return NewDDGSearcher()
+	if key != "" {
+		return NewBraveSearcher(key), nil
+	}
+	return NewDDGSearcher(), nil
 }

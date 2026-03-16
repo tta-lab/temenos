@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -20,6 +21,9 @@ type BraveSearcher struct {
 }
 
 func NewBraveSearcher(apiKey string) *BraveSearcher {
+	if apiKey == "" {
+		slog.Warn("NewBraveSearcher called with empty API key — searches will return HTTP 401")
+	}
 	return &BraveSearcher{
 		apiKey:  apiKey,
 		baseURL: braveBaseURL,
@@ -45,7 +49,10 @@ func (s *BraveSearcher) Search(ctx context.Context, query string, maxResults int
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return nil, fmt.Errorf("brave search: HTTP %d (body read error: %w)", resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("brave search: HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -54,17 +61,24 @@ func (s *BraveSearcher) Search(ctx context.Context, query string, maxResults int
 		return nil, fmt.Errorf("brave search: decode: %w", err)
 	}
 
-	return toBraveResults(result), nil
+	results := toBraveResults(result)
+	if len(results) == 0 {
+		slog.Warn("brave_search returned zero results — possible quota exhaustion or no matches")
+	}
+	return results, nil
+}
+
+// braveWebResult is a single result entry in the Brave API response.
+type braveWebResult struct {
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
 }
 
 // braveSearchResponse is the minimal Brave API response we need.
 type braveSearchResponse struct {
 	Web struct {
-		Results []struct {
-			Title       string `json:"title"`
-			URL         string `json:"url"`
-			Description string `json:"description"`
-		} `json:"results"`
+		Results []braveWebResult `json:"results"`
 	} `json:"web"`
 }
 

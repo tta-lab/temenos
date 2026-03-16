@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,4 +136,18 @@ func TestWalkHTMLTree_EarlyExit(t *testing.T) {
 		return count < 3 // stop after visiting 3 nodes
 	})
 	assert.Equal(t, 3, count)
+}
+
+func TestMaybeDelaySearch_ContextCancelled(t *testing.T) {
+	// Force a delay by making lastSearchTime look recent.
+	lastSearchMu.Lock()
+	lastSearchTime = time.Now()
+	lastSearchMu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately — delay select should return ctx.Err()
+
+	err := maybeDelaySearch(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
 }

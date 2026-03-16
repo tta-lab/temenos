@@ -19,17 +19,9 @@ func TestBraveSearcher_Success(t *testing.T) {
 
 		json.NewEncoder(w).Encode(braveSearchResponse{ //nolint:errcheck
 			Web: struct {
-				Results []struct {
-					Title       string `json:"title"`
-					URL         string `json:"url"`
-					Description string `json:"description"`
-				} `json:"results"`
+				Results []braveWebResult `json:"results"`
 			}{
-				Results: []struct {
-					Title       string `json:"title"`
-					URL         string `json:"url"`
-					Description string `json:"description"`
-				}{
+				Results: []braveWebResult{
 					{Title: "Go Tutorial", URL: "https://go.dev", Description: "Learn Go"},
 				},
 			},
