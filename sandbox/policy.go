@@ -52,14 +52,12 @@ func buildPolicy(cfg *ExecConfig) (policy string, params []string, err error) {
 		}
 	}
 
-	// Allow read access to GOPATH/bin so the temenos binary (and other
-	// Go-installed tools) can be executed inside the sandbox.
-	// This mirrors the PATH constructed in buildEnv.
-	gopathBin := resolveGOPATHBin()
-	if gopathBin != "" {
-		key := fmt.Sprintf("READABLE_ROOT_%d", readableIdx)
-		fmt.Fprintf(&b, "\n(allow file-read* (subpath (param %q)))", key)
-		params = append(params, "-D", key+"="+gopathBin)
+	// Inject tool directory rules from the path registry (see paths.go).
+	_, params = appendToolDirRules(&b, readableIdx, params)
+
+	// Metadata dirs for symlink resolution (e.g. /opt for /opt/homebrew).
+	for _, d := range seatbeltMetadataDirs() {
+		fmt.Fprintf(&b, "\n(allow file-read-metadata (literal %q))", d)
 	}
 
 	// Add DARWIN_USER_CACHE_DIR for TLS cache.
@@ -70,4 +68,32 @@ func buildPolicy(cfg *ExecConfig) (policy string, params []string, err error) {
 	params = append(params, "-D", "DARWIN_USER_CACHE_DIR="+cacheDir)
 
 	return b.String(), params, nil
+}
+
+// appendToolDirRules adds seatbelt read and executable rules for all
+// discovered tool directories. Returns updated readableIdx and params.
+func appendToolDirRules(b *strings.Builder, readableIdx int, params []string) (int, []string) {
+	seen := make(map[string]bool) // deduplicate paths
+
+	for _, td := range allToolDirs() {
+		for _, rd := range td.ReadDirs {
+			if seen[rd] {
+				continue
+			}
+			seen[rd] = true
+			key := fmt.Sprintf("READABLE_ROOT_%d", readableIdx)
+			fmt.Fprintf(b, "\n(allow file-read* (subpath (param %q)))", key)
+			params = append(params, "-D", key+"="+rd)
+			readableIdx++
+		}
+		for _, ed := range td.ExecDirs {
+			if seen["exec:"+ed] {
+				continue
+			}
+			seen["exec:"+ed] = true
+			fmt.Fprintf(b, "\n(allow file-map-executable (subpath %q))", ed)
+		}
+	}
+
+	return readableIdx, params
 }

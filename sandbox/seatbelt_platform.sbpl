@@ -39,17 +39,6 @@
   (subpath "/var/tmp")
   (subpath "/private/var/tmp"))
 
-; Intel Homebrew and /usr/local tools (curl, git, jq, etc.).
-(allow file-read*
-  (subpath "/usr/local"))
-(allow file-map-executable
-  (subpath "/usr/local/lib")
-  (subpath "/usr/local/Cellar"))
-
-; Apple Silicon Homebrew (bin/lib/opt are symlinks into Cellar).
-; Node's realpathSync needs lstat on /opt before traversing /opt/homebrew.
-(allow file-read-metadata (literal "/opt"))
-(allow file-read*
-  (subpath "/opt/homebrew"))
-(allow file-map-executable
-  (subpath "/opt/homebrew"))
+; Tool installation directories (Homebrew, GOPATH, Cargo, etc.) are
+; injected dynamically by buildPolicy() from the path registry in
+; paths.go. See docs/sandbox-security-model.md for rationale.

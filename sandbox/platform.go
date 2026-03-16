@@ -21,7 +21,7 @@ type Options struct {
 // Returns UnavailableSandbox when AllowUnsandboxed is false and no platform sandbox is found.
 func New(opts Options) Sandbox {
 	switch runtime.GOOS {
-	case "darwin":
+	case darwinOS:
 		sbx := &SeatbeltSandbox{Timeout: opts.Timeout}
 		if sbx.IsAvailable() {
 			return sbx

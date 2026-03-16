@@ -57,6 +57,10 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 		)
 	}
 
+	// Mount discovered tool directories (GOPATH/bin, cargo, etc.)
+	// as read-only inside the sandbox. See paths.go.
+	args = appendBwrapToolBinds(args)
+
 	if cfg != nil {
 		for _, m := range cfg.MountDirs {
 			if m.ReadOnly {
@@ -69,4 +73,37 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 
 	args = append(args, "--", "bash", "-c", command)
 	return args
+}
+
+// appendBwrapToolBinds adds --ro-bind entries for each tool directory's
+// ReadDirs that exist on disk and aren't already covered by the static
+// bwrap mounts (/usr, /bin, /lib).
+func appendBwrapToolBinds(args []string) []string {
+	// These are already mounted by the static args above.
+	static := map[string]bool{
+		"/usr": true,
+		"/bin": true,
+		"/lib": true,
+	}
+
+	seen := make(map[string]bool)
+	for _, td := range allToolDirs() {
+		for _, rd := range td.ReadDirs {
+			if static[rd] || seen[rd] {
+				continue
+			}
+			// Skip paths that are subdirs of already-mounted trees.
+			if isSubdirOf(rd, "/usr") || isSubdirOf(rd, "/bin") || isSubdirOf(rd, "/lib") {
+				continue
+			}
+			seen[rd] = true
+			args = append(args, "--ro-bind", rd, rd)
+		}
+	}
+	return args
+}
+
+// isSubdirOf checks if child starts with parent + "/".
+func isSubdirOf(child, parent string) bool {
+	return len(child) > len(parent) && child[:len(parent)+1] == parent+"/"
 }
