@@ -68,26 +68,33 @@ func runCmd(ctx context.Context, cmd *exec.Cmd) (stdout, stderr string, exitCode
 	return stdoutStr, stderrStr, 0, nil
 }
 
+// resolveGOPATHBin returns the GOPATH/bin directory, or empty if unavailable.
+func resolveGOPATHBin() string {
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		return filepath.Join(gopath, "bin")
+	}
+	if h := os.Getenv("HOME"); h != "" {
+		return filepath.Join(h, "go", "bin")
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(h, "go", "bin")
+	}
+	return ""
+}
+
 // buildEnv constructs the environment for a sandboxed process.
 // homeDir sets HOME; if empty, defaults to "/home/agent".
 func buildEnv(cfg *ExecConfig, homeDir string) []string {
 	home := cmp.Or(homeDir, "/home/agent")
-	gopath := os.Getenv("GOPATH")
-	if gopath == "" {
-		if h := os.Getenv("HOME"); h != "" {
-			gopath = filepath.Join(h, "go")
-		} else if h, err := os.UserHomeDir(); err == nil {
-			gopath = filepath.Join(h, "go")
-		} else {
-			slog.Warn("sandbox: GOPATH, HOME, and UserHomeDir all unavailable — temenos binary may not be on PATH",
-				"userHomeDirErr", err,
-				"homeDir", homeDir)
-		}
+	gopathBin := resolveGOPATHBin()
+	if gopathBin == "" {
+		slog.Warn("sandbox: GOPATH, HOME, and UserHomeDir all unavailable — temenos binary may not be on PATH",
+			"homeDir", homeDir)
 	}
 
-	path := "/usr/bin:/usr/local/bin:/bin"
-	if gopath != "" {
-		path += ":" + gopath + "/bin"
+	path := "/usr/bin:/usr/local/bin:/bin:/opt/homebrew/bin"
+	if gopathBin != "" {
+		path += ":" + gopathBin
 	}
 	base := []string{
 		"PATH=" + path,

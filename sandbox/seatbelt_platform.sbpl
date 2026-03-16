@@ -41,10 +41,15 @@
 
 ; Intel Homebrew and /usr/local tools (curl, git, jq, etc.).
 (allow file-read*
-  (subpath "/usr/local/bin")
-  (subpath "/usr/local/lib"))
+  (subpath "/usr/local"))
+(allow file-map-executable
+  (subpath "/usr/local/lib")
+  (subpath "/usr/local/Cellar"))
 
-; Apple Silicon Homebrew.
+; Apple Silicon Homebrew (bin/lib/opt are symlinks into Cellar).
+; Node's realpathSync needs lstat on /opt before traversing /opt/homebrew.
+(allow file-read-metadata (literal "/opt"))
 (allow file-read*
-  (subpath "/opt/homebrew/lib")
-  (subpath "/opt/homebrew/bin"))
+  (subpath "/opt/homebrew"))
+(allow file-map-executable
+  (subpath "/opt/homebrew"))

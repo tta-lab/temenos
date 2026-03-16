@@ -52,6 +52,16 @@ func buildPolicy(cfg *ExecConfig) (policy string, params []string, err error) {
 		}
 	}
 
+	// Allow read access to GOPATH/bin so the temenos binary (and other
+	// Go-installed tools) can be executed inside the sandbox.
+	// This mirrors the PATH constructed in buildEnv.
+	gopathBin := resolveGOPATHBin()
+	if gopathBin != "" {
+		key := fmt.Sprintf("READABLE_ROOT_%d", readableIdx)
+		fmt.Fprintf(&b, "\n(allow file-read* (subpath (param %q)))", key)
+		params = append(params, "-D", key+"="+gopathBin)
+	}
+
 	// Add DARWIN_USER_CACHE_DIR for TLS cache.
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
