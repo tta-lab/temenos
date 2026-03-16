@@ -79,7 +79,9 @@ func buildEnv(cfg *ExecConfig, homeDir string) []string {
 		} else if h, err := os.UserHomeDir(); err == nil {
 			gopath = filepath.Join(h, "go")
 		} else {
-			slog.Warn("sandbox: GOPATH, HOME, and UserHomeDir all unavailable — temenos binary may not be on PATH")
+			slog.Warn("sandbox: GOPATH, HOME, and UserHomeDir all unavailable — temenos binary may not be on PATH",
+				"userHomeDirErr", err,
+				"homeDir", homeDir)
 		}
 	}
 

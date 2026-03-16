@@ -11,6 +11,15 @@ import (
 
 const pathPrefix = "PATH="
 
+func findPathEntry(env []string) string {
+	for _, e := range env {
+		if len(e) >= len(pathPrefix) && e[:len(pathPrefix)] == pathPrefix {
+			return e
+		}
+	}
+	return ""
+}
+
 func TestNew_AllowUnsandboxed_IsAvailable(t *testing.T) {
 	sbx := New(Options{AllowUnsandboxed: true})
 	require.NotNil(t, sbx)
@@ -63,13 +72,7 @@ func TestBuildEnv(t *testing.T) {
 	env := buildEnv(cfg, "")
 
 	// PATH should include GOPATH/bin
-	pathEntry := ""
-	for _, e := range env {
-		if len(e) >= len(pathPrefix) && e[:len(pathPrefix)] == pathPrefix {
-			pathEntry = e
-			break
-		}
-	}
+	pathEntry := findPathEntry(env)
 	assert.Contains(t, pathEntry, "/usr/bin:/usr/local/bin:/bin:")
 	assert.Contains(t, pathEntry, "/test/gopath/bin") // pinned GOPATH/bin
 	assert.Contains(t, env, "HOME=/home/agent")
@@ -80,13 +83,7 @@ func TestBuildEnv(t *testing.T) {
 func TestBuildEnv_Nil(t *testing.T) {
 	env := buildEnv(nil, "")
 
-	pathEntry := ""
-	for _, e := range env {
-		if len(e) >= len(pathPrefix) && e[:len(pathPrefix)] == pathPrefix {
-			pathEntry = e
-			break
-		}
-	}
+	pathEntry := findPathEntry(env)
 	assert.Contains(t, pathEntry, "/usr/bin:/usr/local/bin:/bin")
 	assert.Len(t, env, 3) // PATH, HOME, TERM
 }
@@ -109,13 +106,7 @@ func TestBuildEnv_GOPATHAndHOMEUnset_UsesUserHomeDir(t *testing.T) {
 
 	env := buildEnv(nil, "")
 
-	pathEntry := ""
-	for _, e := range env {
-		if len(e) >= len(pathPrefix) && e[:len(pathPrefix)] == pathPrefix {
-			pathEntry = e
-			break
-		}
-	}
+	pathEntry := findPathEntry(env)
 	assert.Contains(t, pathEntry, userHome+"/go/bin")
 }
 
