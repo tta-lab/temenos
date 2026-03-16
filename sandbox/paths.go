@@ -92,6 +92,39 @@ func dynamicToolDirs() []ToolDir {
 		})
 	}
 
+	// mise: ~/.local/share/mise (polyglot version manager — node, python, ruby, etc.).
+	// Shims dir for PATH, full installs tree for read access.
+	if miseShims := resolveHomeSub(".local", "share", "mise", "shims"); miseShims != "" {
+		dirs = append(dirs, ToolDir{
+			BinDir:   miseShims,
+			ReadDirs: []string{resolveHomeSub(".local", "share", "mise")},
+		})
+	}
+
+	// ~/.local/bin: standard user bin dir (pipx, user-installed scripts).
+	if localBin := resolveHomeSub(".local", "bin"); localBin != "" {
+		dirs = append(dirs, ToolDir{
+			BinDir:   localBin,
+			ReadDirs: []string{localBin},
+		})
+	}
+
+	// Bun: ~/.bun/bin.
+	if bunBin := resolveHomeSub(".bun", "bin"); bunBin != "" {
+		dirs = append(dirs, ToolDir{
+			BinDir:   bunBin,
+			ReadDirs: []string{bunBin},
+		})
+	}
+
+	// proto: ~/.proto/bin (toolchain manager).
+	if protoBin := resolveHomeSub(".proto", "bin"); protoBin != "" {
+		dirs = append(dirs, ToolDir{
+			BinDir:   protoBin,
+			ReadDirs: []string{protoBin},
+		})
+	}
+
 	return dirs
 }
 

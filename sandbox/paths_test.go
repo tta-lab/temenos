@@ -76,7 +76,7 @@ func TestDynamicToolDirs_IncludesGOPATH(t *testing.T) {
 	assert.Contains(t, binDirs, "/test/gopath/bin")
 }
 
-func TestDynamicToolDirs_IncludesCargo(t *testing.T) {
+func TestDynamicToolDirs_IncludesAllExpected(t *testing.T) {
 	t.Setenv("HOME", "/test/home")
 	dirs := dynamicToolDirs()
 	binDirs := make([]string, 0, len(dirs))
@@ -84,6 +84,23 @@ func TestDynamicToolDirs_IncludesCargo(t *testing.T) {
 		binDirs = append(binDirs, td.BinDir)
 	}
 	assert.Contains(t, binDirs, "/test/home/.cargo/bin")
+	assert.Contains(t, binDirs, "/test/home/.local/share/mise/shims")
+	assert.Contains(t, binDirs, "/test/home/.local/bin")
+	assert.Contains(t, binDirs, "/test/home/.bun/bin")
+	assert.Contains(t, binDirs, "/test/home/.proto/bin")
+}
+
+func TestDynamicToolDirs_MiseReadDirsCoversInstalls(t *testing.T) {
+	t.Setenv("HOME", "/test/home")
+	dirs := dynamicToolDirs()
+	for _, td := range dirs {
+		if td.BinDir == "/test/home/.local/share/mise/shims" {
+			assert.Contains(t, td.ReadDirs, "/test/home/.local/share/mise",
+				"mise ReadDirs should cover the full installs tree")
+			return
+		}
+	}
+	t.Fatal("mise entry not found in dynamicToolDirs")
 }
 
 func TestAllToolDirs_FiltersNonExistent(t *testing.T) {

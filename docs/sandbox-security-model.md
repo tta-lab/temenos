@@ -52,6 +52,10 @@ policy. Only directories that exist on disk are included.
 | Snap | `/snap/bin` | `/snap` | Linux |
 | Go (GOPATH) | `$GOPATH/bin` or `~/go/bin` | same | both |
 | Cargo (Rust) | `~/.cargo/bin` | same | both |
+| mise | `~/.local/share/mise/shims` | `~/.local/share/mise` | both |
+| ~/.local/bin | `~/.local/bin` | same | both |
+| Bun | `~/.bun/bin` | same | both |
+| proto | `~/.proto/bin` | same | both |
 
 The full list is defined in `sandbox/paths.go` as Go slices. To add
 a new tool directory, add a `ToolDir` entry to `staticToolDirs()` or
