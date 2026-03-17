@@ -11,10 +11,12 @@
 package sandbox
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 const darwinOS = "darwin"
@@ -94,10 +96,10 @@ func dynamicToolDirs() []ToolDir {
 
 	// mise: ~/.local/share/mise (polyglot version manager — node, python, ruby, etc.).
 	// Shims dir for PATH, full installs tree for read access.
-	if miseShims := resolveHomeSub(".local", "share", "mise", "shims"); miseShims != "" {
+	if miseRoot := resolveHomeSub(".local", "share", "mise"); miseRoot != "" {
 		dirs = append(dirs, ToolDir{
-			BinDir:   miseShims,
-			ReadDirs: []string{resolveHomeSub(".local", "share", "mise")},
+			BinDir:   filepath.Join(miseRoot, "shims"),
+			ReadDirs: []string{miseRoot},
 		})
 	}
 
@@ -154,27 +156,52 @@ func daemonHome() string {
 	if h := os.Getenv("HOME"); h != "" {
 		return h
 	}
-	if h, err := os.UserHomeDir(); err == nil {
-		return h
+	h, err := os.UserHomeDir()
+	if err != nil {
+		slog.Warn("sandbox: HOME unset and UserHomeDir failed — dynamic tool dirs will be absent",
+			"err", err)
+		return ""
 	}
-	return ""
+	return h
 }
 
+var (
+	cachedToolDirs     []ToolDir
+	cachedToolDirsOnce sync.Once
+)
+
 // allToolDirs returns static + dynamic tool dirs, filtered to those
-// whose BinDir actually exists on disk.
+// whose BinDir actually exists on disk. Results are cached after first call
+// since HOME/GOPATH are stable for the daemon's lifetime.
 func allToolDirs() []ToolDir {
-	all := append(staticToolDirs(), dynamicToolDirs()...)
-	var result []ToolDir
-	for _, td := range all {
-		if td.BinDir == "" {
-			continue
+	cachedToolDirsOnce.Do(func() {
+		static := staticToolDirs()
+		dynamic := dynamicToolDirs()
+		all := make([]ToolDir, 0, len(static)+len(dynamic))
+		all = append(all, static...)
+		all = append(all, dynamic...)
+
+		for _, td := range all {
+			if td.BinDir == "" {
+				continue
+			}
+			if _, err := os.Stat(td.BinDir); err != nil {
+				if !os.IsNotExist(err) {
+					slog.Warn("sandbox: unexpected error checking tool dir",
+						"path", td.BinDir, "err", err)
+				}
+				continue
+			}
+			cachedToolDirs = append(cachedToolDirs, td)
 		}
-		if _, err := os.Stat(td.BinDir); err != nil {
-			continue
-		}
-		result = append(result, td)
-	}
-	return result
+	})
+	return cachedToolDirs
+}
+
+// resetToolDirsCache clears the cached tool dirs (for testing only).
+func resetToolDirsCache() {
+	cachedToolDirsOnce = sync.Once{}
+	cachedToolDirs = nil
 }
 
 // buildSandboxPATH constructs the PATH string for sandboxed processes.

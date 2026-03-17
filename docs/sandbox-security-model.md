@@ -57,6 +57,10 @@ policy. Only directories that exist on disk are included.
 | Bun | `~/.bun/bin` | same | both |
 | proto | `~/.proto/bin` | same | both |
 
+Homebrew entries also include `ExecDirs` (granted `file-map-executable`
+on macOS seatbelt) to allow loading shared libraries. See the `ToolDir`
+struct in `sandbox/paths.go` for the full definition.
+
 The full list is defined in `sandbox/paths.go` as Go slices. To add
 a new tool directory, add a `ToolDir` entry to `staticToolDirs()` or
 `dynamicToolDirs()`.
@@ -65,8 +69,9 @@ a new tool directory, add a `ToolDir` entry to `staticToolDirs()` or
 
 Everything not explicitly listed above, including:
 
-- **`$HOME`** — The user's home directory is not readable. Only
-  specific subdirs (`~/.cargo/bin`, `~/go/bin`) are allowed.
+- **`$HOME`** — The user's home directory is not readable as a whole.
+  Only specific well-known tool subdirs are allowlisted (e.g.
+  `~/.cargo/bin`, `~/go/bin`, `~/.local/share/mise` — see table above).
 - **Project directories** — Must be passed as `allowed_paths` in the
   `/run` request.
 - **Other users' directories** — No access by default.

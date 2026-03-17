@@ -106,6 +106,8 @@ func TestDynamicToolDirs_MiseReadDirsCoversInstalls(t *testing.T) {
 func TestAllToolDirs_FiltersNonExistent(t *testing.T) {
 	t.Setenv("GOPATH", "/nonexistent/gopath")
 	t.Setenv("HOME", "/nonexistent/home")
+	resetToolDirsCache()
+	t.Cleanup(resetToolDirsCache)
 	dirs := allToolDirs()
 	for _, td := range dirs {
 		_, err := os.Stat(td.BinDir)

@@ -7,13 +7,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const roBind = "--ro-bind"
+
 func TestBwrapSandbox_BuildArgs(t *testing.T) {
 	s := &BwrapSandbox{BwrapPath: "bwrap"}
 
 	args := s.buildArgs("echo hello", nil)
 
 	// Verify core bwrap flags are present
-	assert.Contains(t, args, "--ro-bind")
+	assert.Contains(t, args, roBind)
 	assert.Contains(t, args, "--unshare-all")
 	assert.Contains(t, args, "--share-net")
 	assert.Contains(t, args, "--die-with-parent")
@@ -39,7 +41,7 @@ func TestBwrapSandbox_BuildArgs_WithMounts(t *testing.T) {
 	// Verify read-only mount uses --ro-bind
 	foundROBind := false
 	for i, a := range args {
-		if a == "--ro-bind" && i+2 < len(args) && args[i+1] == "/data" && args[i+2] == "/data" {
+		if a == roBind && i+2 < len(args) && args[i+1] == "/data" && args[i+2] == "/data" {
 			foundROBind = true
 		}
 	}
@@ -53,4 +55,39 @@ func TestBwrapSandbox_BuildArgs_WithMounts(t *testing.T) {
 		}
 	}
 	assert.True(t, foundBind, "expected --bind for /writable")
+}
+
+func TestCoveredByStaticRoot(t *testing.T) {
+	assert.True(t, coveredByStaticRoot("/usr"))
+	assert.True(t, coveredByStaticRoot("/usr/local"))
+	assert.True(t, coveredByStaticRoot("/usr/local/bin"))
+	assert.True(t, coveredByStaticRoot("/bin"))
+	assert.True(t, coveredByStaticRoot("/lib"))
+	assert.False(t, coveredByStaticRoot("/opt/homebrew"))
+	assert.False(t, coveredByStaticRoot("/snap"))
+	assert.False(t, coveredByStaticRoot("/home/linuxbrew"))
+}
+
+func TestAppendBwrapToolBinds_SkipsStaticRoots(t *testing.T) {
+	// /usr/local is a subdir of /usr (static root) — should be skipped.
+	args := appendBwrapToolBinds(nil)
+	for i, a := range args {
+		if a == roBind && i+1 < len(args) {
+			path := args[i+1]
+			assert.False(t, coveredByStaticRoot(path),
+				"appendBwrapToolBinds should not bind %s (covered by static root)", path)
+		}
+	}
+}
+
+func TestAppendBwrapToolBinds_NoDuplicates(t *testing.T) {
+	args := appendBwrapToolBinds(nil)
+	seen := make(map[string]bool)
+	for i, a := range args {
+		if a == roBind && i+1 < len(args) {
+			path := args[i+1]
+			assert.False(t, seen[path], "duplicate --ro-bind for %s", path)
+			seen[path] = true
+		}
+	}
 }

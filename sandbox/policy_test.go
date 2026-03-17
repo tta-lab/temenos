@@ -50,6 +50,12 @@ func TestBuildPolicy_WritableMount(t *testing.T) {
 }
 
 func TestBuildPolicy_MountParams(t *testing.T) {
+	// Control environment so dynamic tool dirs don't shift indices.
+	t.Setenv("GOPATH", "/nonexistent/gopath")
+	t.Setenv("HOME", "/nonexistent/home")
+	resetToolDirsCache()
+	t.Cleanup(resetToolDirsCache)
+
 	cfg := &ExecConfig{
 		MountDirs: []Mount{
 			{Source: "/ro1", Target: "/ro1", ReadOnly: true},
