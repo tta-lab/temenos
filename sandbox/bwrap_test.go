@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -68,9 +69,24 @@ func TestCoveredByStaticRoot(t *testing.T) {
 	assert.False(t, coveredByStaticRoot("/home/linuxbrew"))
 }
 
+// setupTempToolDir creates a temp directory, points HOME at it so
+// dynamicToolDirs discovers a .cargo/bin entry, and resets the cache.
+// Returns a cleanup function. NOT parallel-safe (resets sync.Once cache).
+func setupTempToolDir(t *testing.T) {
+	t.Helper()
+	tmp := t.TempDir()
+	cargoBin := tmp + "/.cargo/bin"
+	require.NoError(t, os.MkdirAll(cargoBin, 0o755))
+	t.Setenv("HOME", tmp)
+	t.Setenv("GOPATH", "/nonexistent/gopath")
+	resetToolDirsCache()
+	t.Cleanup(resetToolDirsCache)
+}
+
 func TestAppendBwrapToolBinds_SkipsStaticRoots(t *testing.T) {
-	// /usr/local is a subdir of /usr (static root) — should be skipped.
+	setupTempToolDir(t)
 	args := appendBwrapToolBinds(nil)
+	require.NotEmpty(t, args, "expected at least one --ro-bind from temp tool dir")
 	for i, a := range args {
 		if a == roBind && i+1 < len(args) {
 			path := args[i+1]
@@ -81,7 +97,9 @@ func TestAppendBwrapToolBinds_SkipsStaticRoots(t *testing.T) {
 }
 
 func TestAppendBwrapToolBinds_NoDuplicates(t *testing.T) {
+	setupTempToolDir(t)
 	args := appendBwrapToolBinds(nil)
+	require.NotEmpty(t, args, "expected at least one --ro-bind from temp tool dir")
 	seen := make(map[string]bool)
 	for i, a := range args {
 		if a == roBind && i+1 < len(args) {

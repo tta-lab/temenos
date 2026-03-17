@@ -2,6 +2,9 @@ package sandbox
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -95,6 +98,10 @@ func appendBwrapToolBinds(args []string) []string {
 			}
 			// Validate the ReadDir exists — bwrap fails on missing bind sources.
 			if _, err := os.Stat(rd); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					slog.Warn("sandbox: unexpected error checking bwrap ReadDir; bind mount skipped",
+						"path", rd, "err", err)
+				}
 				continue
 			}
 			seen[rd] = true

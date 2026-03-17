@@ -11,6 +11,8 @@
 package sandbox
 
 import (
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -186,7 +188,7 @@ func allToolDirs() []ToolDir {
 				continue
 			}
 			if _, err := os.Stat(td.BinDir); err != nil {
-				if !os.IsNotExist(err) {
+				if !errors.Is(err, fs.ErrNotExist) {
 					slog.Warn("sandbox: unexpected error checking tool dir",
 						"path", td.BinDir, "err", err)
 				}
@@ -199,6 +201,7 @@ func allToolDirs() []ToolDir {
 }
 
 // resetToolDirsCache clears the cached tool dirs (for testing only).
+// NOT parallel-safe — callers must not use t.Parallel().
 func resetToolDirsCache() {
 	cachedToolDirsOnce = sync.Once{}
 	cachedToolDirs = nil
