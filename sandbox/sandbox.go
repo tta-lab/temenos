@@ -5,10 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	"cmp"
@@ -70,27 +67,12 @@ func runCmd(ctx context.Context, cmd *exec.Cmd) (stdout, stderr string, exitCode
 
 // buildEnv constructs the environment for a sandboxed process.
 // homeDir sets HOME; if empty, defaults to "/home/agent".
+// PATH is built from buildSandboxPATH() which includes all discovered
+// tool directories (see paths.go).
 func buildEnv(cfg *ExecConfig, homeDir string) []string {
 	home := cmp.Or(homeDir, "/home/agent")
-	gopath := os.Getenv("GOPATH")
-	if gopath == "" {
-		if h := os.Getenv("HOME"); h != "" {
-			gopath = filepath.Join(h, "go")
-		} else if h, err := os.UserHomeDir(); err == nil {
-			gopath = filepath.Join(h, "go")
-		} else {
-			slog.Warn("sandbox: GOPATH, HOME, and UserHomeDir all unavailable — temenos binary may not be on PATH",
-				"userHomeDirErr", err,
-				"homeDir", homeDir)
-		}
-	}
-
-	path := "/usr/bin:/usr/local/bin:/bin"
-	if gopath != "" {
-		path += ":" + gopath + "/bin"
-	}
 	base := []string{
-		"PATH=" + path,
+		"PATH=" + buildSandboxPATH(),
 		"HOME=" + home,
 		"TERM=dumb",
 	}

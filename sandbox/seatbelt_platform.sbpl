@@ -39,12 +39,6 @@
   (subpath "/var/tmp")
   (subpath "/private/var/tmp"))
 
-; Intel Homebrew and /usr/local tools (curl, git, jq, etc.).
-(allow file-read*
-  (subpath "/usr/local/bin")
-  (subpath "/usr/local/lib"))
-
-; Apple Silicon Homebrew.
-(allow file-read*
-  (subpath "/opt/homebrew/lib")
-  (subpath "/opt/homebrew/bin"))
+; Tool installation directories (Homebrew, GOPATH, Cargo, etc.) are
+; injected dynamically by buildPolicy() from the path registry in
+; paths.go. See docs/sandbox-security-model.md for rationale.

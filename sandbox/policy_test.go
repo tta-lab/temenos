@@ -50,6 +50,12 @@ func TestBuildPolicy_WritableMount(t *testing.T) {
 }
 
 func TestBuildPolicy_MountParams(t *testing.T) {
+	// Control environment so dynamic tool dirs don't shift indices.
+	t.Setenv("GOPATH", "/nonexistent/gopath")
+	t.Setenv("HOME", "/nonexistent/home")
+	resetToolDirsCache()
+	t.Cleanup(resetToolDirsCache)
+
 	cfg := &ExecConfig{
 		MountDirs: []Mount{
 			{Source: "/ro1", Target: "/ro1", ReadOnly: true},
@@ -59,12 +65,31 @@ func TestBuildPolicy_MountParams(t *testing.T) {
 	}
 	policy, params, err := buildPolicy(cfg)
 	require.NoError(t, err)
-	assert.Contains(t, policy, `"READABLE_ROOT_0"`)
-	assert.Contains(t, policy, `"READABLE_ROOT_1"`)
-	assert.Contains(t, policy, `"WRITABLE_ROOT_0"`)
-	assert.Contains(t, params, "READABLE_ROOT_0=/ro1")
-	assert.Contains(t, params, "READABLE_ROOT_1=/ro2")
-	assert.Contains(t, params, "WRITABLE_ROOT_0=/rw1")
+
+	// Assert by value rather than numbered key — static tool dirs
+	// may inject READABLE_ROOT entries before per-request mounts,
+	// shifting indices depending on the machine.
+	foundRO1, foundRO2, foundRW1 := false, false, false
+	for _, p := range params {
+		switch {
+		case strings.HasSuffix(p, "=/ro1") && strings.HasPrefix(p, "READABLE_ROOT_"):
+			foundRO1 = true
+			// Verify the policy references this param.
+			key := strings.SplitN(p, "=", 2)[0]
+			assert.Contains(t, policy, `"`+key+`"`)
+		case strings.HasSuffix(p, "=/ro2") && strings.HasPrefix(p, "READABLE_ROOT_"):
+			foundRO2 = true
+			key := strings.SplitN(p, "=", 2)[0]
+			assert.Contains(t, policy, `"`+key+`"`)
+		case strings.HasSuffix(p, "=/rw1") && strings.HasPrefix(p, "WRITABLE_ROOT_"):
+			foundRW1 = true
+			key := strings.SplitN(p, "=", 2)[0]
+			assert.Contains(t, policy, `"`+key+`"`)
+		}
+	}
+	assert.True(t, foundRO1, "expected a READABLE_ROOT param for /ro1")
+	assert.True(t, foundRO2, "expected a READABLE_ROOT param for /ro2")
+	assert.True(t, foundRW1, "expected a WRITABLE_ROOT param for /rw1")
 }
 
 func TestBuildPolicy_SourceTargetMismatch(t *testing.T) {
