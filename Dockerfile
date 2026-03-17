@@ -12,7 +12,9 @@ RUN apk add --no-cache \
     curl \
     sed \
     coreutils \
-    ripgrep
+    ripgrep \
+    python3 \
+    jq
 
 COPY --from=builder /app/temenos /usr/local/bin/temenos
 
