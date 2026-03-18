@@ -25,12 +25,18 @@
   (subpath "/System/iOSSupport/System/Library/SubFrameworks")
   (subpath "/usr/lib"))
 
-; Standard bin/usr/bin/etc access.
+; Standard bin/usr/bin/usr/local/bin/etc access.
 (allow file-read*
   (subpath "/bin")
   (subpath "/usr/bin")
+  (subpath "/usr/local")
   (subpath "/etc")
   (subpath "/private/etc"))
+
+; /usr/local dylib loading (Intel Homebrew and user-installed tools).
+(allow file-map-executable
+  (subpath "/usr/local/lib")
+  (subpath "/usr/local/Cellar"))
 
 ; /tmp read-write (HOME dir for sandboxed processes is created here).
 (allow file-read* file-test-existence file-write*
