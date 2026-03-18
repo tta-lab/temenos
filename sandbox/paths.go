@@ -208,12 +208,14 @@ func resetToolDirsCache() {
 }
 
 // buildSandboxPATH constructs the PATH string for sandboxed processes.
-// It starts with the base system dirs (/usr/bin, /bin) then appends
-// all discovered tool bin dirs.
+// It starts with the base system dirs (/usr/bin, /usr/local/bin, /bin) then
+// appends all discovered tool bin dirs. /usr/local/bin is included
+// unconditionally: it is the standard FHS location for locally installed
+// binaries on both Linux and macOS.
 func buildSandboxPATH() string {
 	tools := allToolDirs()
-	base := make([]string, 0, 2+len(tools))
-	base = append(base, "/usr/bin", "/bin")
+	base := make([]string, 0, 3+len(tools))
+	base = append(base, "/usr/bin", "/usr/local/bin", "/bin")
 	for _, td := range tools {
 		base = append(base, td.BinDir)
 	}

@@ -52,8 +52,8 @@ func TestStaticToolDirs_ReturnsForPlatform(t *testing.T) {
 
 func TestBuildSandboxPATH_ContainsBase(t *testing.T) {
 	path := buildSandboxPATH()
-	assert.True(t, strings.HasPrefix(path, "/usr/bin:/bin"),
-		"PATH should start with /usr/bin:/bin, got: %s", path)
+	assert.True(t, strings.HasPrefix(path, "/usr/bin:/usr/local/bin:/bin"),
+		"PATH should start with /usr/bin:/usr/local/bin:/bin, got: %s", path)
 }
 
 func TestBuildSandboxPATH_ContainsGOPATH(t *testing.T) {
