@@ -40,13 +40,16 @@ func TestStaticToolDirs_ReturnsForPlatform(t *testing.T) {
 	require.NotEmpty(t, dirs)
 
 	if runtime.GOOS == darwinOS {
-		// Should include Homebrew entries.
+		// Should include Apple Silicon Homebrew.
+		// /usr/local/bin is not a ToolDir BinDir — it is in the base PATH
+		// unconditionally and its seatbelt grants live in seatbelt_platform.sbpl.
 		binDirs := make([]string, 0, len(dirs))
 		for _, td := range dirs {
 			binDirs = append(binDirs, td.BinDir)
 		}
 		assert.Contains(t, binDirs, "/opt/homebrew/bin")
-		assert.Contains(t, binDirs, "/usr/local/bin")
+		// /usr/local/bin must not be a ToolDir BinDir — it comes from the base PATH.
+		assert.NotContains(t, binDirs, "/usr/local/bin")
 	}
 }
 
@@ -54,6 +57,8 @@ func TestBuildSandboxPATH_ContainsBase(t *testing.T) {
 	path := buildSandboxPATH()
 	assert.True(t, strings.HasPrefix(path, "/usr/bin:/usr/local/bin:/bin"),
 		"PATH should start with /usr/bin:/usr/local/bin:/bin, got: %s", path)
+	assert.Equal(t, 1, strings.Count(path, "/usr/local/bin"),
+		"/usr/local/bin should appear exactly once in PATH, got: %s", path)
 }
 
 func TestBuildSandboxPATH_ContainsGOPATH(t *testing.T) {

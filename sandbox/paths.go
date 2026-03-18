@@ -50,12 +50,9 @@ func darwinToolDirs() []ToolDir {
 			ReadDirs: []string{"/opt/homebrew"},
 			ExecDirs: []string{"/opt/homebrew"},
 		},
-		// Intel Homebrew / /usr/local tools.
-		{
-			BinDir:   "/usr/local/bin",
-			ReadDirs: []string{"/usr/local"},
-			ExecDirs: []string{"/usr/local/lib", "/usr/local/Cellar"},
-		},
+		// Intel Homebrew / /usr/local: /usr/local/bin is in the base PATH
+		// unconditionally; read and exec grants are static in seatbelt_platform.sbpl.
+		// No ToolDir entry needed here.
 	}
 }
 
@@ -212,6 +209,11 @@ func resetToolDirsCache() {
 // appends all discovered tool bin dirs. /usr/local/bin is included
 // unconditionally: it is the standard FHS location for locally installed
 // binaries on both Linux and macOS.
+//
+// Policy note: on macOS (seatbelt), read and exec access for /usr/local is
+// granted statically in seatbelt_platform.sbpl — independent of whether
+// /usr/local/bin exists on disk. On Linux (bwrap), /usr is already mounted
+// read-only via --ro-bind /usr /usr, so no extra grant is needed.
 func buildSandboxPATH() string {
 	tools := allToolDirs()
 	base := make([]string, 0, 3+len(tools))
