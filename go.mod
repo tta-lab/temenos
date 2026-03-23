@@ -6,8 +6,6 @@ require (
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	github.com/yuin/goldmark v1.7.16
-	golang.org/x/net v0.52.0
 )
 
 require (
