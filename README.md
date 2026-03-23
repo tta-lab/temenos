@@ -119,14 +119,13 @@ resp, err := c.Run(ctx, client.RunRequest{
 fmt.Println(resp.Stdout)
 ```
 
-## CLI tools
+## Included Tools
 
-Temenos also ships standalone utilities for AI agent toolchains:
+The Docker image includes [Organon](https://github.com/tta-lab/organon) binaries on PATH:
 
-```bash
-temenos read-url <url>     # fetch and extract content from a URL
-temenos search <query>     # web search
-```
+- `src` — tree-sitter symbol-aware source reading/editing
+- `url` — web page fetching as markdown
+- `web` — web search (Brave API / DuckDuckGo)
 
 ## Limits
 
