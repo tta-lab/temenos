@@ -26,8 +26,9 @@ func Seconds(s int) time.Duration {
 
 // ExecConfig holds per-execution sandbox settings.
 type ExecConfig struct {
-	Env       []string // Extra env vars passed to the sandboxed process
-	MountDirs []Mount  // Additional read-only bind mounts
+	Env        []string // Extra env vars passed to the sandboxed process
+	MountDirs  []Mount  // Additional read-only bind mounts
+	WorkingDir string   // If set, commands run in this directory; empty = sandbox default
 }
 
 // Mount represents a filesystem mount inside the sandbox.

@@ -23,6 +23,9 @@ func (n *NoopSandbox) Exec(
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Env = buildEnv(cfg, "")
+	if cfg != nil && cfg.WorkingDir != "" {
+		cmd.Dir = cfg.WorkingDir
+	}
 
 	return runCmd(ctx, cmd)
 }

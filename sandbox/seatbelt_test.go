@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,6 +124,40 @@ func TestSeatbeltSandbox_NetworkWorks(t *testing.T) {
 	// Accept any HTTP response — we just want network to work.
 	t.Logf("curl exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	assert.Equal(t, 0, code, "curl should succeed with network access")
+}
+
+func TestSeatbeltSandbox_WorkingDir(t *testing.T) {
+	requireSandboxExec(t)
+
+	homeDir, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	testDir := filepath.Join(homeDir, ".ttal_sandbox_test_workdir")
+	require.NoError(t, os.MkdirAll(testDir, 0755))
+	t.Cleanup(func() { _ = os.RemoveAll(testDir) })
+
+	s := &SeatbeltSandbox{Timeout: 10 * time.Second}
+	cfg := &ExecConfig{
+		MountDirs:  []Mount{{Source: testDir, Target: testDir, ReadOnly: true}},
+		WorkingDir: testDir,
+	}
+	stdout, _, code, err := s.Exec(t.Context(), "pwd", cfg)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, code)
+	assert.Equal(t, testDir, strings.TrimSpace(stdout))
+}
+
+func TestSeatbeltSandbox_WorkingDir_Empty_FallsBack(t *testing.T) {
+	requireSandboxExec(t)
+
+	s := &SeatbeltSandbox{Timeout: 10 * time.Second}
+	stdout, _, code, err := s.Exec(t.Context(), "pwd", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, code)
+	// Falls back to temp homeDir — should be under /tmp or /private/tmp
+	assert.Contains(t, strings.TrimSpace(stdout), "tmp")
 }
 
 func TestSeatbeltSandbox_TempHomeCleanup(t *testing.T) {

@@ -86,6 +86,9 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 		Env:       envSlice,
 		MountDirs: mounts,
 	}
+	if len(mounts) > 0 {
+		execCfg.WorkingDir = mounts[0].Source
+	}
 
 	stdout, stderr, exitCode, err := sbx.Exec(ctx, req.Command, execCfg)
 	if err != nil {

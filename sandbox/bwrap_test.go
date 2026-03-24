@@ -58,6 +58,41 @@ func TestBwrapSandbox_BuildArgs_WithMounts(t *testing.T) {
 	assert.True(t, foundBind, "expected --bind for /writable")
 }
 
+func TestBwrapSandbox_BuildArgs_WithWorkingDir(t *testing.T) {
+	s := &BwrapSandbox{BwrapPath: "bwrap"}
+	cfg := &ExecConfig{
+		MountDirs:  []Mount{{Source: "/data", Target: "/data", ReadOnly: true}},
+		WorkingDir: "/data",
+	}
+
+	args := s.buildArgs("ls", cfg)
+
+	// Find --chdir and -- positions
+	chdirIdx := -1
+	separatorIdx := -1
+	for i, a := range args {
+		if a == "--chdir" {
+			chdirIdx = i
+		}
+		if a == "--" {
+			separatorIdx = i
+		}
+	}
+	require.NotEqual(t, -1, chdirIdx, "expected --chdir flag")
+	require.NotEqual(t, -1, separatorIdx, "expected -- separator")
+	assert.Less(t, chdirIdx, separatorIdx, "--chdir must appear before -- separator")
+	assert.Equal(t, "/data", args[chdirIdx+1])
+}
+
+func TestBwrapSandbox_BuildArgs_NoWorkingDir(t *testing.T) {
+	s := &BwrapSandbox{BwrapPath: "bwrap"}
+	args := s.buildArgs("ls", nil)
+
+	for _, a := range args {
+		assert.NotEqual(t, "--chdir", a, "--chdir should not appear when WorkingDir is empty")
+	}
+}
+
 func TestCoveredByStaticRoot(t *testing.T) {
 	assert.True(t, coveredByStaticRoot("/usr"))
 	assert.True(t, coveredByStaticRoot("/usr/local"))

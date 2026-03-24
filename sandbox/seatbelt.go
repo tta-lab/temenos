@@ -46,7 +46,13 @@ func (s *SeatbeltSandbox) Exec(
 
 	cmd := exec.CommandContext(ctx, "/usr/bin/sandbox-exec", args...)
 	cmd.Env = buildEnv(cfg, homeDir)
-	cmd.Dir = homeDir // avoid getcwd errors when cwd is outside sandbox paths
+	// Use WorkingDir if provided (within allowed paths), otherwise
+	// fall back to temp homeDir to avoid getcwd errors.
+	if cfg != nil && cfg.WorkingDir != "" {
+		cmd.Dir = cfg.WorkingDir
+	} else {
+		cmd.Dir = homeDir
+	}
 
 	return runCmd(ctx, cmd)
 }

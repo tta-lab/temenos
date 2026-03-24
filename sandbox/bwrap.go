@@ -75,6 +75,10 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 		}
 	}
 
+	if cfg != nil && cfg.WorkingDir != "" {
+		args = append(args, "--chdir", cfg.WorkingDir)
+	}
+
 	args = append(args, "--", "bash", "-c", command)
 	return args
 }
