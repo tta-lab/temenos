@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -120,14 +121,15 @@ type RunResponse struct {
 	ExitCode int    `json:"exit_code"`
 }
 
-// Run sends a command to the temenos daemon for sandboxed execution.
-func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResponse, error) {
+// postJSON marshals req as JSON, POSTs it to path, and decodes the response into Resp.
+// It handles the 1 MiB body limit, content-type header, and error wrapping uniformly.
+func postJSON[Req any, Resp any](ctx context.Context, c *Client, path string, req Req) (*Resp, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("temenos: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/run", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("temenos: build request: %w", err)
 	}
@@ -140,14 +142,55 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResponse, error) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(errBody))
+		if msg != "" {
+			return nil, fmt.Errorf("temenos: daemon returned HTTP %d: %s", resp.StatusCode, msg)
+		}
 		return nil, fmt.Errorf("temenos: daemon returned HTTP %d", resp.StatusCode)
 	}
 
-	var result RunResponse
+	var result Resp
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("temenos: decode response: %w", err)
 	}
 	return &result, nil
+}
+
+// Run sends a command to the temenos daemon for sandboxed execution.
+func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResponse, error) {
+	return postJSON[RunRequest, RunResponse](ctx, c, "/run", req)
+}
+
+// RunBlockRequest is the body for POST /run-block.
+type RunBlockRequest struct {
+	Block        string            `json:"block"`
+	Prefix       string            `json:"prefix"`
+	StopOnError  *bool             `json:"stop_on_error,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`
+	Network      *bool             `json:"network,omitempty"`
+	Timeout      int               `json:"timeout,omitempty"` // per-command timeout in seconds
+}
+
+// CommandResult is one command's execution result within a block.
+type CommandResult struct {
+	Command  string `json:"command"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exit_code"`
+}
+
+// RunBlockResponse is the response from POST /run-block.
+type RunBlockResponse struct {
+	Results []CommandResult `json:"results"`
+}
+
+// RunBlock sends a block of text to the temenos daemon for multi-command
+// sandboxed execution. The daemon parses commands using the given prefix
+// and executes each in a separate sandbox invocation.
+func (c *Client) RunBlock(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error) {
+	return postJSON[RunBlockRequest, RunBlockResponse](ctx, c, "/run-block", req)
 }
 
 // Health checks if the daemon is running and returns any error if not.
