@@ -24,5 +24,7 @@ COPY --from=organon /usr/local/bin/src /usr/local/bin/url /usr/local/bin/web /us
 # TCP mode: unauthenticated plain HTTP. Restrict access via Kubernetes NetworkPolicy.
 ENV TEMENOS_LISTEN_ADDR=:8081
 EXPOSE 8081
-USER nobody
+# Root required for cgroup v2 memory.max writes (SYS_ADMIN cap from k8s).
+# This container has no secrets — all credentials stay in the agent container.
+USER root
 CMD ["temenos", "daemon"]
