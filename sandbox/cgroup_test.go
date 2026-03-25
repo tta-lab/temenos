@@ -30,6 +30,9 @@ func TestNewCgroupExec_Integration(t *testing.T) {
 
 	cg, err := newCgroupExec(128)
 	if err != nil {
+		if os.IsPermission(err) {
+			t.Skip("no permission to create cgroup sub-directory (requires root or SYS_ADMIN)")
+		}
 		t.Fatal(err)
 	}
 	defer cg.cleanup()
