@@ -18,6 +18,12 @@ func TestParseBlock(t *testing.T) {
 		{"heredoc with dash", "\n§ cat <<-EOF\n\tindented\nEOF\n", []string{"cat <<-EOF\n\tindented\nEOF"}},
 		{"unclosed heredoc", "\n§ cat <<'EOF'\nline1\nline2", []string{"cat <<'EOF'\nline1\nline2"}},
 		{"prefix only no args", "\n§ \n§ ls\n", []string{"ls"}},
+		// Regression: heredoc body lines starting with prefix must not be re-parsed as commands.
+		{
+			"heredoc body with prefix not re-parsed",
+			"§ cat <<'EOF'\n§ echo inside\nEOF\n§ ls",
+			[]string{"cat <<'EOF'\n§ echo inside\nEOF", "ls"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -54,34 +60,38 @@ func TestParseBlock_CustomPrefix(t *testing.T) {
 	}
 }
 
-func TestHeredocDelimiter(t *testing.T) {
+func TestParseHeredocSpec(t *testing.T) {
 	tests := []struct {
-		args      string
-		wantDelim string
-		wantOK    bool
+		args       string
+		wantDelim  string
+		wantIsDash bool
+		wantOK     bool
 	}{
-		{"cat <<EOF", "EOF", true},
-		{"cat <<'EOF'", "EOF", true},
-		{"cat <<\"EOF\"", "EOF", true},
-		{"cat <<-EOF", "EOF", true},
-		{"cat <<-'MARKER'", "MARKER", true},
-		{"cat <<- 'PLANEOF'", "PLANEOF", true},
-		{"cat <<-\"PLANEOF\"", "PLANEOF", true},
-		{"cat <<'EOF' | wc -l", "EOF", true},
-		{"cat <<'EOF' > out.txt", "EOF", true},
-		{"ls -la", "", false},
-		{"echo hello", "", false},
-		{"cat <<", "", false},
+		{"cat <<EOF", "EOF", false, true},
+		{"cat <<'EOF'", "EOF", false, true},
+		{"cat <<\"EOF\"", "EOF", false, true},
+		{"cat <<-EOF", "EOF", true, true},
+		{"cat <<-'MARKER'", "MARKER", true, true},
+		{"cat <<- 'PLANEOF'", "PLANEOF", true, true},
+		{"cat <<-\"PLANEOF\"", "PLANEOF", true, true},
+		{"cat <<'EOF' | wc -l", "EOF", false, true},
+		{"cat <<'EOF' > out.txt", "EOF", false, true},
+		{"ls -la", "", false, false},
+		{"echo hello", "", false, false},
+		{"cat <<", "", false, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.args, func(t *testing.T) {
-			delim, ok := heredocDelimiter(tt.args)
+			spec, ok := parseHeredocSpec(tt.args)
 			if ok != tt.wantOK {
 				t.Errorf("ok = %v, want %v", ok, tt.wantOK)
 			}
-			if delim != tt.wantDelim {
-				t.Errorf("delim = %q, want %q", delim, tt.wantDelim)
+			if spec.delim != tt.wantDelim {
+				t.Errorf("delim = %q, want %q", spec.delim, tt.wantDelim)
+			}
+			if ok && spec.isDash != tt.wantIsDash {
+				t.Errorf("isDash = %v, want %v", spec.isDash, tt.wantIsDash)
 			}
 		})
 	}
@@ -89,23 +99,32 @@ func TestHeredocDelimiter(t *testing.T) {
 
 func TestIsHeredocClose(t *testing.T) {
 	tests := []struct {
-		name  string
-		line  string
-		delim string
-		want  bool
+		name   string
+		line   string
+		delim  string
+		isDash bool
+		want   bool
 	}{
-		{"exact match", "EOF", "EOF", true},
-		{"with surrounding whitespace", "  EOF  ", "EOF", true},
-		{"tab-indented", "\t\tEOF", "EOF", true},
-		{"wrong delimiter", "NOTEOF", "EOF", false},
-		{"empty line", "", "EOF", false},
-		{"partial match", "EO", "EOF", false},
+		// Non-dash (<<): exact match only
+		{"exact match", "EOF", "EOF", false, true},
+		{"trailing space non-dash", "EOF ", "EOF", false, false},
+		{"leading space non-dash", " EOF", "EOF", false, false},
+		{"wrong delimiter", "NOTEOF", "EOF", false, false},
+		{"empty line", "", "EOF", false, false},
+		{"partial match", "EO", "EOF", false, false},
+		// Dash (<<-): leading tabs stripped
+		{"tab-indented dash", "\t\tEOF", "EOF", true, true},
+		{"exact match dash", "EOF", "EOF", true, true},
+		{"space-padded dash does not match", "  EOF  ", "EOF", true, false},
+		{"trailing space dash", "EOF  ", "EOF", true, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isHeredocClose(tt.line, tt.delim); got != tt.want {
-				t.Errorf("isHeredocClose(%q, %q) = %v, want %v", tt.line, tt.delim, got, tt.want)
+			spec := heredocSpec{delim: tt.delim, isDash: tt.isDash}
+			if got := isHeredocClose(tt.line, spec); got != tt.want {
+				t.Errorf("isHeredocClose(%q, {%q, isDash=%v}) = %v, want %v",
+					tt.line, tt.delim, tt.isDash, got, tt.want)
 			}
 		})
 	}

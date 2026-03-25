@@ -174,16 +174,7 @@ func handleRunBlock(ctx context.Context, sbx sandbox.Sandbox, req RunBlockReques
 			break
 		}
 
-		cmdCtx := ctx
-		var cancel context.CancelFunc
-		if req.Timeout > 0 {
-			cmdCtx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
-		}
-
-		stdout, stderr, exitCode, execErr := sbx.Exec(cmdCtx, cmd.Args, execCfg)
-		if cancel != nil {
-			cancel()
-		}
+		stdout, stderr, exitCode, execErr := execWithTimeout(ctx, sbx, req.Timeout, cmd.Args, execCfg)
 		if execErr != nil {
 			return nil, execErr
 		}
@@ -201,6 +192,25 @@ func handleRunBlock(ctx context.Context, sbx sandbox.Sandbox, req RunBlockReques
 	}
 
 	return &RunBlockResponse{Results: results}, nil
+}
+
+// execWithTimeout runs cmd in the sandbox with an optional per-call timeout.
+// When timeoutSecs > 0 a derived context with that deadline is used, and its
+// cancel is deferred — ensuring cleanup even if sbx.Exec panics.
+// When timeoutSecs == 0 the parent context is used directly.
+func execWithTimeout(
+	ctx context.Context,
+	sbx sandbox.Sandbox,
+	timeoutSecs int,
+	cmd string,
+	cfg *sandbox.ExecConfig,
+) (string, string, int, error) {
+	if timeoutSecs <= 0 {
+		return sbx.Exec(ctx, cmd, cfg)
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
+	defer cancel()
+	return sbx.Exec(cmdCtx, cmd, cfg)
 }
 
 func handleHealth(version string) HealthResponse {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -141,6 +142,11 @@ func postJSON[Req any, Resp any](ctx context.Context, c *Client, path string, re
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(errBody))
+		if msg != "" {
+			return nil, fmt.Errorf("temenos: daemon returned HTTP %d: %s", resp.StatusCode, msg)
+		}
 		return nil, fmt.Errorf("temenos: daemon returned HTTP %d", resp.StatusCode)
 	}
 
