@@ -292,10 +292,7 @@ func TestResolveAllowedPaths_CwdIsFirst(t *testing.T) {
 	paths, err := resolveAllowedPaths()
 	require.NoError(t, err)
 	require.NotEmpty(t, paths)
-	cwd, err := osGetwd()
+	cwd, err := os.Getwd()
 	require.NoError(t, err)
 	assert.Equal(t, cwd, paths[0].Path)
 }
-
-// osGetwd is a thin wrapper so tests can call it without importing "os" directly.
-func osGetwd() (string, error) { return os.Getwd() }

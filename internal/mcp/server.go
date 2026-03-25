@@ -192,10 +192,9 @@ func runSingle(
 		return nil, fmt.Errorf("bash: sandbox execution failed: %w", err)
 	}
 
-	var b strings.Builder
-	appendOutputFooter(&b, combineOutput(resp.Stdout, resp.Stderr), resp.ExitCode)
+	text := formatSingleOutput(resp.Stdout, resp.Stderr, resp.ExitCode)
 	return &gosdkmcp.CallToolResult{
-		Content: []gosdkmcp.Content{&gosdkmcp.TextContent{Text: b.String()}},
+		Content: []gosdkmcp.Content{&gosdkmcp.TextContent{Text: text}},
 	}, nil
 }
 
