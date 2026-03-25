@@ -1,6 +1,9 @@
 package sandbox
 
 import (
+	"context"
+	"errors"
+	"os/exec"
 	"runtime"
 	"testing"
 
@@ -88,6 +91,35 @@ func TestBuildEnv_Nil(t *testing.T) {
 func TestBuildEnv_WithHomeDir(t *testing.T) {
 	env := buildEnv(nil, "/tmp/ttal-agent-12345")
 	assert.Contains(t, env, "HOME=/tmp/ttal-agent-12345")
+}
+
+func TestRunCmdWithHook_HookReceivesValidPID(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "echo", "hello")
+
+	var capturedPID int
+	stdout, _, exitCode, err := runCmdWithHook(ctx, cmd, func(pid int) error {
+		capturedPID = pid
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Contains(t, stdout, "hello")
+	assert.Greater(t, capturedPID, 0, "hook should receive a positive PID")
+}
+
+func TestRunCmdWithHook_HookErrorAbortsExecution(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "echo", "hello")
+
+	hookErr := errors.New("hook injection failed")
+	_, _, exitCode, err := runCmdWithHook(ctx, cmd, func(pid int) error {
+		return hookErr
+	})
+
+	require.ErrorIs(t, err, hookErr)
+	assert.Equal(t, -1, exitCode)
 }
 
 func TestTruncate(t *testing.T) {

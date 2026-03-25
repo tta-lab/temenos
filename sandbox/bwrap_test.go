@@ -1,8 +1,11 @@
 package sandbox
 
 import (
+	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -128,6 +131,28 @@ func TestAppendBwrapToolBinds_SkipsStaticRoots(t *testing.T) {
 			assert.False(t, coveredByStaticRoot(path),
 				"appendBwrapToolBinds should not bind %s (covered by static root)", path)
 		}
+	}
+}
+
+func TestBwrapSandbox_MemoryLimit_Degradation(t *testing.T) {
+	sbx := &BwrapSandbox{
+		BwrapPath:     "bwrap",
+		Timeout:       5 * time.Second,
+		MemoryLimitMB: 128,
+	}
+	if !sbx.IsAvailable() {
+		t.Skip("bwrap not available")
+	}
+
+	stdout, stderr, exitCode, err := sbx.Exec(context.Background(), "echo hello", nil)
+	if err != nil {
+		t.Fatalf("Exec failed: %v (stderr: %s)", err, stderr)
+	}
+	if exitCode != 0 {
+		t.Errorf("exit code = %d, want 0 (stderr: %s)", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, "hello") {
+		t.Errorf("stdout = %q, want 'hello'", stdout)
 	}
 }
 

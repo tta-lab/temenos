@@ -55,9 +55,16 @@ func Run(version string) error {
 		}
 	}
 
+	memLimitMB, err := parseMemoryLimitMB()
+	if err != nil {
+		return err
+	}
+
 	sbx := sandbox.New(sandbox.Options{
 		Timeout:          sandbox.Seconds(120),
 		AllowUnsandboxed: false,
+		MemoryLimitMB:    memLimitMB,
+		RequireCgroup:    parseRequireCgroup(),
 	})
 
 	// Phase 2: tracker will be passed to handleRun for /ps and /kill support.

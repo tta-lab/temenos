@@ -41,11 +41,33 @@ type Mount struct {
 // runCmd executes a prepared command and returns output, exit code, and errors.
 // It distinguishes between context cancellation (timeout) and other exec errors.
 func runCmd(ctx context.Context, cmd *exec.Cmd) (stdout, stderr string, exitCode int, err error) {
+	return runCmdWithHook(ctx, cmd, nil)
+}
+
+// runCmdWithHook executes a prepared command, calling postStart (if non-nil)
+// after the process starts but before waiting for it to finish. This enables
+// cgroup PID assignment between Start and Wait.
+// If postStart returns a non-nil error the process is killed and that error is returned.
+func runCmdWithHook(
+	ctx context.Context, cmd *exec.Cmd, postStart func(pid int) error,
+) (stdout, stderr string, exitCode int, err error) {
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
-	runErr := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return "", "", -1, fmt.Errorf("exec failed: %w", err)
+	}
+
+	if postStart != nil {
+		if hookErr := postStart(cmd.Process.Pid); hookErr != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return "", "", -1, hookErr
+		}
+	}
+
+	waitErr := cmd.Wait()
 
 	stdoutStr := truncate(stdoutBuf.String(), maxOutputBytes)
 	stderrStr := truncate(stderrBuf.String(), maxOutputBytes)
@@ -56,11 +78,11 @@ func runCmd(ctx context.Context, cmd *exec.Cmd) (stdout, stderr string, exitCode
 
 	// Distinguish successful exit (including non-zero) from exec infrastructure failure.
 	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
+	if errors.As(waitErr, &exitErr) {
 		return stdoutStr, stderrStr, exitErr.ExitCode(), nil
 	}
-	if runErr != nil {
-		return stdoutStr, stderrStr, -1, fmt.Errorf("exec failed: %w", runErr)
+	if waitErr != nil {
+		return stdoutStr, stderrStr, -1, fmt.Errorf("exec failed: %w", waitErr)
 	}
 
 	return stdoutStr, stderrStr, 0, nil
