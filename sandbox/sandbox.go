@@ -47,8 +47,9 @@ func runCmd(ctx context.Context, cmd *exec.Cmd) (stdout, stderr string, exitCode
 // runCmdWithHook executes a prepared command, calling postStart (if non-nil)
 // after the process starts but before waiting for it to finish. This enables
 // cgroup PID assignment between Start and Wait.
+// If postStart returns a non-nil error the process is killed and that error is returned.
 func runCmdWithHook(
-	ctx context.Context, cmd *exec.Cmd, postStart func(pid int),
+	ctx context.Context, cmd *exec.Cmd, postStart func(pid int) error,
 ) (stdout, stderr string, exitCode int, err error) {
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
@@ -59,7 +60,11 @@ func runCmdWithHook(
 	}
 
 	if postStart != nil {
-		postStart(cmd.Process.Pid)
+		if hookErr := postStart(cmd.Process.Pid); hookErr != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return "", "", -1, hookErr
+		}
 	}
 
 	waitErr := cmd.Wait()

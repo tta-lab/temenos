@@ -17,6 +17,8 @@ func TestParseMemoryLimitMB(t *testing.T) {
 		{"non-integer", "abc", 0, true},
 		{"zero", "0", 0, true},
 		{"negative", "-1", 0, true},
+		{"ceiling", "32768", 32768, false},
+		{"over ceiling", "32769", 0, true},
 		{"exceeds max", "99999", 0, true},
 		{"float", "128.5", 0, true},
 	}

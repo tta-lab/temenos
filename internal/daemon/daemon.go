@@ -64,6 +64,7 @@ func Run(version string) error {
 		Timeout:          sandbox.Seconds(120),
 		AllowUnsandboxed: false,
 		MemoryLimitMB:    memLimitMB,
+		RequireCgroup:    parseRequireCgroup(),
 	})
 
 	// Phase 2: tracker will be passed to handleRun for /ps and /kill support.

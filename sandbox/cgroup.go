@@ -5,18 +5,26 @@ package sandbox
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 )
 
 const (
 	cgroupRoot   = "/sys/fs/cgroup"
 	cgroupPrefix = "temenos-exec-"
+)
+
+var (
+	cgroupOnce      sync.Once
+	cgroupAvailBool bool
 )
 
 // cgroupExec manages a per-execution cgroup v2 sub-group with memory limits.
@@ -40,7 +48,11 @@ func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 	cg := &cgroupExec{path: path}
 
 	// Enable memory controller in parent subtree (idempotent, may fail if already set).
-	_ = os.WriteFile(filepath.Join(cgroupRoot, "cgroup.subtree_control"), []byte("+memory"), 0o644)
+	if err := os.WriteFile(
+		filepath.Join(cgroupRoot, "cgroup.subtree_control"), []byte("+memory"), 0o644,
+	); err != nil {
+		slog.Warn("sandbox: cgroup subtree_control write failed", "err", err)
+	}
 
 	memBytes := int64(memoryMB) * 1024 * 1024
 
@@ -65,16 +77,22 @@ func (c *cgroupExec) addPID(pid int) error {
 // cleanup kills any remaining processes and removes the cgroup directory.
 // Safe to call multiple times. Logs warnings on non-critical failures.
 func (c *cgroupExec) cleanup() {
-	procsPath := filepath.Join(c.path, "cgroup.procs")
-	data, err := os.ReadFile(procsPath)
-	if err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-			pid, err := strconv.Atoi(strings.TrimSpace(line))
-			if err != nil || pid <= 1 {
-				continue // skip invalid, PID 0, and PID 1 (init)
-			}
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+	// Atomically signal all tasks to exit via cgroup.kill (Linux 5.14+).
+	// Silently ignored on older kernels — the per-PID kill below covers them.
+	_ = os.WriteFile(filepath.Join(c.path, "cgroup.kill"), []byte("1"), 0o644)
+
+	// Per-PID SIGKILL for older kernels or any orphaned processes.
+	c.killProcs()
+
+	// Poll cgroup.procs until empty before removing the directory.
+	// SIGKILL is async — the kernel must finish reaping before the dir can be removed.
+	// 10 * 5ms = 50ms max wait.
+	for i := 0; i < 10; i++ {
+		data, err := os.ReadFile(filepath.Join(c.path, "cgroup.procs"))
+		if err != nil || strings.TrimSpace(string(data)) == "" {
+			break
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	if err := os.Remove(c.path); err != nil && !os.IsNotExist(err) {
@@ -82,10 +100,36 @@ func (c *cgroupExec) cleanup() {
 	}
 }
 
-// cgroupAvailable returns true if cgroup v2 is mounted and readable.
+// killProcs sends SIGKILL to each PID listed in cgroup.procs.
+// ESRCH (process already gone) is silently ignored; EPERM is logged.
+func (c *cgroupExec) killProcs() {
+	data, err := os.ReadFile(filepath.Join(c.path, "cgroup.procs"))
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil || pid <= 1 {
+			continue // skip invalid, PID 0, and PID 1 (init)
+		}
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			slog.Warn("sandbox: failed to kill cgroup process", "pid", pid, "err", err)
+		}
+	}
+}
+
+// cgroupAvailable returns true if cgroup v2 is mounted and the current process
+// has write access to create sub-directories (requires root or SYS_ADMIN cap).
+// Result is cached after the first call.
 func cgroupAvailable() bool {
-	_, err := os.Stat(filepath.Join(cgroupRoot, "cgroup.controllers"))
-	return err == nil
+	cgroupOnce.Do(func() {
+		if _, err := os.Stat(filepath.Join(cgroupRoot, "cgroup.controllers")); err != nil {
+			return
+		}
+		// Verify write access — creating sub-directories requires root or SYS_ADMIN.
+		cgroupAvailBool = syscall.Access(cgroupRoot, syscall.W_OK) == nil
+	})
+	return cgroupAvailBool
 }
 
 func shortID() (string, error) {

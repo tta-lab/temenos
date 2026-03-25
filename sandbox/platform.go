@@ -13,6 +13,7 @@ type Options struct {
 	Timeout          time.Duration
 	AllowUnsandboxed bool // if true, fall back to NoopSandbox when no platform sandbox is found
 	MemoryLimitMB    int  // Linux only; 0 = no limit. Requires cgroup v2 + SYS_ADMIN.
+	RequireCgroup    bool // Linux only; if true, Exec returns an error when cgroup setup fails
 }
 
 // New creates the appropriate sandbox for the current platform.
@@ -32,6 +33,7 @@ func New(opts Options) Sandbox {
 			BwrapPath:     cmp.Or(opts.BwrapPath, "bwrap"),
 			Timeout:       opts.Timeout,
 			MemoryLimitMB: opts.MemoryLimitMB,
+			RequireCgroup: opts.RequireCgroup,
 		}
 		if sbx.IsAvailable() {
 			return sbx

@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -16,7 +17,8 @@ import (
 type BwrapSandbox struct {
 	BwrapPath     string
 	Timeout       time.Duration
-	MemoryLimitMB int // 0 = no limit
+	MemoryLimitMB int  // 0 = no limit
+	RequireCgroup bool // if true, Exec returns an error when cgroup setup fails
 }
 
 // Exec runs a bash command inside the bubblewrap sandbox.
@@ -38,18 +40,26 @@ func (s *BwrapSandbox) Exec(
 
 	cg, err := newCgroupExec(s.MemoryLimitMB)
 	if err != nil {
+		if s.RequireCgroup {
+			return "", "", -1, fmt.Errorf("sandbox: cgroup required but setup failed: %w", err)
+		}
 		slog.Warn("sandbox: cgroup setup failed, proceeding without memory limit", "err", err)
 		return runCmd(ctx, cmd)
 	}
 	defer cg.cleanup()
 
 	// postStart adds bwrap's PID to the cgroup between Start() and Wait().
-	// If addPID fails, the process runs unconstrained for this execution — logged but not fatal.
-	return runCmdWithHook(ctx, cmd, func(pid int) {
+	// If addPID fails and RequireCgroup is set, the process is killed and an error returned.
+	// Otherwise it runs unconstrained for this execution — logged but not fatal.
+	return runCmdWithHook(ctx, cmd, func(pid int) error {
 		if err := cg.addPID(pid); err != nil {
+			if s.RequireCgroup {
+				return fmt.Errorf("sandbox: failed to add PID to cgroup: %w", err)
+			}
 			slog.Warn("sandbox: failed to add PID to cgroup, execution runs without memory limit",
 				"pid", pid, "err", err)
 		}
+		return nil
 	})
 }
 
