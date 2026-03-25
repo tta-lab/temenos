@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"testing"
 
 	gosdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,16 +15,24 @@ import (
 )
 
 // stubClient is a test double for sandboxClient.
+// If runFunc or runBlockFunc is nil and the corresponding method is called,
+// it panics with a clear message rather than a nil function dereference.
 type stubClient struct {
 	runFunc      func(ctx context.Context, req client.RunRequest) (*client.RunResponse, error)
 	runBlockFunc func(ctx context.Context, req client.RunBlockRequest) (*client.RunBlockResponse, error)
 }
 
 func (s *stubClient) Run(ctx context.Context, req client.RunRequest) (*client.RunResponse, error) {
+	if s.runFunc == nil {
+		panic("stubClient.Run called but runFunc is not set")
+	}
 	return s.runFunc(ctx, req)
 }
 
 func (s *stubClient) RunBlock(ctx context.Context, req client.RunBlockRequest) (*client.RunBlockResponse, error) {
+	if s.runBlockFunc == nil {
+		panic("stubClient.RunBlock called but runBlockFunc is not set")
+	}
 	return s.runBlockFunc(ctx, req)
 }
 
@@ -188,6 +198,14 @@ func TestBashHandler_EmptyCommand(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestBashHandler_NilParams(t *testing.T) {
+	handler := makeBashHandler(&stubClient{}, nil)
+	// Simulate malformed client that sends nil Params.
+	_, err := handler(context.Background(), &gosdkmcp.CallToolRequest{Params: nil})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing tool call parameters")
+}
+
 func TestBashHandler_AllowedPathsPassedThrough(t *testing.T) {
 	paths := []client.AllowedPath{{Path: "/project", ReadOnly: false}}
 	stub := &stubClient{
@@ -225,3 +243,59 @@ func TestBashHandler_StopOnErrorPassedToBlock(t *testing.T) {
 	_, err := callTool(t, handler, bashInput{Command: "§ ls", StopOnError: &stopFalse})
 	require.NoError(t, err)
 }
+
+func TestBashHandler_RunErrorPropagated(t *testing.T) {
+	sandboxErr := errors.New("daemon unreachable")
+	stub := &stubClient{
+		runFunc: func(_ context.Context, _ client.RunRequest) (*client.RunResponse, error) {
+			return nil, sandboxErr
+		},
+	}
+	handler := makeBashHandler(stub, nil)
+	_, err := callTool(t, handler, bashInput{Command: "ls"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sandboxErr)
+}
+
+func TestBashHandler_RunBlockErrorPropagated(t *testing.T) {
+	sandboxErr := errors.New("daemon unreachable")
+	stub := &stubClient{
+		runBlockFunc: func(_ context.Context, _ client.RunBlockRequest) (*client.RunBlockResponse, error) {
+			return nil, sandboxErr
+		},
+	}
+	handler := makeBashHandler(stub, nil)
+	_, err := callTool(t, handler, bashInput{Command: "§ ls"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sandboxErr)
+}
+
+func TestResolveAllowedPaths_ReadOnly(t *testing.T) {
+	t.Setenv("TEMENOS_WRITE", "")
+	paths, err := resolveAllowedPaths()
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	// First path (cwd) must be read-only when TEMENOS_WRITE is not set.
+	assert.True(t, paths[0].ReadOnly, "cwd should be read-only without TEMENOS_WRITE=true")
+}
+
+func TestResolveAllowedPaths_ReadWrite(t *testing.T) {
+	t.Setenv("TEMENOS_WRITE", "true")
+	paths, err := resolveAllowedPaths()
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	// First path (cwd) must be read-write when TEMENOS_WRITE=true.
+	assert.False(t, paths[0].ReadOnly, "cwd should be read-write with TEMENOS_WRITE=true")
+}
+
+func TestResolveAllowedPaths_CwdIsFirst(t *testing.T) {
+	paths, err := resolveAllowedPaths()
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+	cwd, err := osGetwd()
+	require.NoError(t, err)
+	assert.Equal(t, cwd, paths[0].Path)
+}
+
+// osGetwd is a thin wrapper so tests can call it without importing "os" directly.
+func osGetwd() (string, error) { return os.Getwd() }

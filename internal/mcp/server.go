@@ -58,6 +58,10 @@ type bashInput struct {
 // It reads the working directory as the primary allowed path,
 // and TEMENOS_WRITE=true to grant read-write access (default: read-only).
 func Serve(version string) error {
+	if !json.Valid([]byte(bashToolSchema)) {
+		return fmt.Errorf("mcp: internal error: bashToolSchema is not valid JSON")
+	}
+
 	allowedPaths, err := resolveAllowedPaths()
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
@@ -80,7 +84,10 @@ func Serve(version string) error {
 		InputSchema: json.RawMessage(bashToolSchema),
 	}, makeBashHandler(c, allowedPaths))
 
-	return srv.Run(context.Background(), &gosdkmcp.StdioTransport{})
+	if err := srv.Run(context.Background(), &gosdkmcp.StdioTransport{}); err != nil {
+		return fmt.Errorf("mcp: server exited with error: %w", err)
+	}
+	return nil
 }
 
 // resolveAllowedPaths builds the sandbox allowed paths from env config:
@@ -102,7 +109,9 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	// This is safe: daemon.sock has a scoped API, no filesystem escape.
 	// Never mount temenos.sock — it accepts arbitrary allowed_paths (sandbox escape).
 	ttalSocketPath, err := resolveTTalDaemonSocket()
-	if err == nil {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "temenos mcp: skipping ttal socket mount: %v\n", err)
+	} else {
 		paths = append(paths, client.AllowedPath{Path: ttalSocketPath, ReadOnly: false})
 	}
 
@@ -111,8 +120,12 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 
 // resolveTTalDaemonSocket returns the path to the ttal daemon socket.
 // Falls back to ~/.ttal/daemon.sock if TTAL_SOCKET_PATH is not set.
+// Returns an error if the path does not exist on disk (for either source).
 func resolveTTalDaemonSocket() (string, error) {
 	if p := os.Getenv("TTAL_SOCKET_PATH"); p != "" {
+		if _, err := os.Stat(p); err != nil {
+			return "", fmt.Errorf("TTAL_SOCKET_PATH %q does not exist: %w", p, err)
+		}
 		return p, nil
 	}
 	home, err := os.UserHomeDir()
@@ -121,7 +134,7 @@ func resolveTTalDaemonSocket() (string, error) {
 	}
 	socketPath := filepath.Join(home, ".ttal", "daemon.sock")
 	if _, err := os.Stat(socketPath); err != nil {
-		// Socket doesn't exist yet — skip mounting it rather than failing.
+		// Socket doesn't exist yet — soft-skip, not a startup failure.
 		return "", fmt.Errorf("ttal daemon socket not found: %s", socketPath)
 	}
 	return socketPath, nil
@@ -131,6 +144,9 @@ func resolveTTalDaemonSocket() (string, error) {
 // Single commands route to /run; multi-command blocks (§ prefix) route to /run-block.
 func makeBashHandler(c sandboxClient, allowedPaths []client.AllowedPath) gosdkmcp.ToolHandler {
 	return func(ctx context.Context, req *gosdkmcp.CallToolRequest) (*gosdkmcp.CallToolResult, error) {
+		if req.Params == nil {
+			return nil, fmt.Errorf("bash: missing tool call parameters")
+		}
 		var input bashInput
 		if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
 			return nil, fmt.Errorf("bash: invalid arguments: %w", err)
@@ -147,7 +163,11 @@ func makeBashHandler(c sandboxClient, allowedPaths []client.AllowedPath) gosdkmc
 }
 
 // isBlockCommand returns true if the command string contains any § -prefixed lines.
+// Uses strings.Contains for a fast early check before iterating lines.
 func isBlockCommand(command string) bool {
+	if !strings.Contains(command, blockPrefix) {
+		return false
+	}
 	for _, line := range strings.Split(command, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), blockPrefix) {
 			return true
@@ -172,9 +192,10 @@ func runSingle(
 		return nil, fmt.Errorf("bash: sandbox execution failed: %w", err)
 	}
 
-	text := formatSingleOutput(resp.Stdout, resp.Stderr, resp.ExitCode)
+	var b strings.Builder
+	appendOutputFooter(&b, combineOutput(resp.Stdout, resp.Stderr), resp.ExitCode)
 	return &gosdkmcp.CallToolResult{
-		Content: []gosdkmcp.Content{&gosdkmcp.TextContent{Text: text}},
+		Content: []gosdkmcp.Content{&gosdkmcp.TextContent{Text: b.String()}},
 	}, nil
 }
 
@@ -207,19 +228,7 @@ func runBlock(
 // non-zero exits are not treated as tool-level errors.
 func formatSingleOutput(stdout, stderr string, exitCode int) string {
 	var b strings.Builder
-	if stdout != "" {
-		b.WriteString(stdout)
-		if !strings.HasSuffix(stdout, "\n") {
-			b.WriteByte('\n')
-		}
-	}
-	if stderr != "" {
-		b.WriteString(stderr)
-		if !strings.HasSuffix(stderr, "\n") {
-			b.WriteByte('\n')
-		}
-	}
-	fmt.Fprintf(&b, "[exit_code: %d]", exitCode)
+	appendOutputFooter(&b, combineOutput(stdout, stderr), exitCode)
 	return b.String()
 }
 
@@ -232,17 +241,21 @@ func formatBlockOutput(results []client.CommandResult) string {
 			b.WriteByte('\n')
 		}
 		fmt.Fprintf(&b, "§ %s\n", r.Command)
-
-		combined := combineOutput(r.Stdout, r.Stderr)
-		if combined != "" {
-			b.WriteString(combined)
-			if !strings.HasSuffix(combined, "\n") {
-				b.WriteByte('\n')
-			}
-		}
-		fmt.Fprintf(&b, "[exit_code: %d]", r.ExitCode)
+		appendOutputFooter(&b, combineOutput(r.Stdout, r.Stderr), r.ExitCode)
 	}
 	return b.String()
+}
+
+// appendOutputFooter writes the combined output followed by the [exit_code: N] footer
+// to b. It ensures a trailing newline before the footer if output is non-empty.
+func appendOutputFooter(b *strings.Builder, output string, exitCode int) {
+	if output != "" {
+		b.WriteString(output)
+		if !strings.HasSuffix(output, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	fmt.Fprintf(b, "[exit_code: %d]", exitCode)
 }
 
 // combineOutput concatenates stdout and stderr with a newline separator if both are non-empty.
