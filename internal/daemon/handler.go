@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/tta-lab/temenos/internal/parse"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -38,6 +39,30 @@ type RunResponse struct {
 	ExitCode int    `json:"exit_code"`
 }
 
+// RunBlockRequest is the POST /run-block body.
+type RunBlockRequest struct {
+	Block        string            `json:"block"`
+	Prefix       string            `json:"prefix"`
+	StopOnError  *bool             `json:"stop_on_error,omitempty"` // default true
+	Env          map[string]string `json:"env,omitempty"`
+	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`
+	Network      *bool             `json:"network,omitempty"`
+	Timeout      int               `json:"timeout,omitempty"` // per-command timeout in seconds (matches /run semantics)
+}
+
+// CommandResult is one command's execution result within a block.
+type CommandResult struct {
+	Command  string `json:"command"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exit_code"`
+}
+
+// RunBlockResponse is the POST /run-block response.
+type RunBlockResponse struct {
+	Results []CommandResult `json:"results"`
+}
+
 // HealthResponse is the GET /health response.
 type HealthResponse struct {
 	OK       bool   `json:"ok"`
@@ -58,15 +83,10 @@ func validatePath(p string) error {
 	return nil
 }
 
-func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
-	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
-		defer cancel()
-	}
-
-	mounts := make([]sandbox.Mount, 0, len(req.AllowedPaths))
-	for _, ap := range req.AllowedPaths {
+// buildMounts converts AllowedPath slice into sandbox.Mount slice, validating each path.
+func buildMounts(paths []AllowedPath) ([]sandbox.Mount, error) {
+	mounts := make([]sandbox.Mount, 0, len(paths))
+	for _, ap := range paths {
 		if err := validatePath(ap.Path); err != nil {
 			return nil, fmt.Errorf("%w: %w", errHTTPValidation, err)
 		}
@@ -76,19 +96,44 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 			ReadOnly: ap.ReadOnly,
 		})
 	}
+	return mounts, nil
+}
 
-	envSlice := make([]string, 0, len(req.Env))
-	for k, v := range req.Env {
-		envSlice = append(envSlice, k+"="+v)
+// buildEnvSlice converts a map of env vars to a KEY=VALUE slice.
+func buildEnvSlice(env map[string]string) []string {
+	s := make([]string, 0, len(env))
+	for k, v := range env {
+		s = append(s, k+"="+v)
 	}
+	return s
+}
 
-	execCfg := &sandbox.ExecConfig{
+// buildExecConfig constructs an ExecConfig from env and mounts.
+// WorkingDir is set to the first mount's source path if any mounts are present.
+func buildExecConfig(envSlice []string, mounts []sandbox.Mount) *sandbox.ExecConfig {
+	cfg := &sandbox.ExecConfig{
 		Env:       envSlice,
 		MountDirs: mounts,
 	}
 	if len(mounts) > 0 {
-		execCfg.WorkingDir = mounts[0].Source
+		cfg.WorkingDir = mounts[0].Source
 	}
+	return cfg
+}
+
+func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
+	if req.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
+		defer cancel()
+	}
+
+	mounts, err := buildMounts(req.AllowedPaths)
+	if err != nil {
+		return nil, err
+	}
+
+	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts)
 
 	stdout, stderr, exitCode, err := sbx.Exec(ctx, req.Command, execCfg)
 	if err != nil {
@@ -102,6 +147,62 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 	}, nil
 }
 
+func handleRunBlock(ctx context.Context, sbx sandbox.Sandbox, req RunBlockRequest) (*RunBlockResponse, error) {
+	if req.Block == "" {
+		return nil, fmt.Errorf("%w: block must not be empty", errHTTPValidation)
+	}
+	if req.Prefix == "" {
+		return nil, fmt.Errorf("%w: prefix must not be empty", errHTTPValidation)
+	}
+
+	stopOnError := true
+	if req.StopOnError != nil {
+		stopOnError = *req.StopOnError
+	}
+
+	mounts, err := buildMounts(req.AllowedPaths)
+	if err != nil {
+		return nil, err
+	}
+
+	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts)
+	cmds := parse.ParseBlock(req.Block, req.Prefix)
+	results := make([]CommandResult, 0, len(cmds))
+
+	for _, cmd := range cmds {
+		if ctx.Err() != nil {
+			break
+		}
+
+		cmdCtx := ctx
+		var cancel context.CancelFunc
+		if req.Timeout > 0 {
+			cmdCtx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
+		}
+
+		stdout, stderr, exitCode, execErr := sbx.Exec(cmdCtx, cmd.Args, execCfg)
+		if cancel != nil {
+			cancel()
+		}
+		if execErr != nil {
+			return nil, execErr
+		}
+
+		results = append(results, CommandResult{
+			Command:  cmd.Args,
+			Stdout:   stdout,
+			Stderr:   stderr,
+			ExitCode: exitCode,
+		})
+
+		if stopOnError && exitCode != 0 {
+			break
+		}
+	}
+
+	return &RunBlockResponse{Results: results}, nil
+}
+
 func handleHealth(version string) HealthResponse {
 	return HealthResponse{
 		OK:       true,
@@ -110,17 +211,18 @@ func handleHealth(version string) HealthResponse {
 	}
 }
 
-// handleHTTPRunValidating decodes the request, enforces a 1 MiB body limit,
-// and returns HTTP 400 for validation errors, 500 for sandbox errors.
-func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
+// handleHTTPValidating is a generic HTTP handler factory. It decodes a JSON
+// request body (1 MiB limit), calls fn, and writes a JSON response.
+// Validation errors (errHTTPValidation) → HTTP 400; other errors → HTTP 500.
+func handleHTTPValidating[Req any, Resp any](fn func(context.Context, Req) (*Resp, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MiB limit
-		var req RunRequest
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var req Req
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		resp, err := h.run(r.Context(), req)
+		resp, err := fn(r.Context(), req)
 		if err != nil {
 			if errors.Is(err, errHTTPValidation) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -131,4 +233,16 @@ func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
+}
+
+// handleHTTPRunValidating decodes the request, enforces a 1 MiB body limit,
+// and returns HTTP 400 for validation errors, 500 for sandbox errors.
+func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
+	return handleHTTPValidating(h.run)
+}
+
+// handleHTTPRunBlockValidating decodes the run-block request, enforces a 1 MiB
+// body limit, and returns HTTP 400 for validation errors, 500 for sandbox errors.
+func handleHTTPRunBlockValidating(h httpHandlers) http.HandlerFunc {
+	return handleHTTPValidating(h.runBlock)
 }
