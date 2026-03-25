@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -127,7 +129,7 @@ func cgroupAvailable() bool {
 			return
 		}
 		// Verify write access — creating sub-directories requires root or SYS_ADMIN.
-		cgroupAvailBool = syscall.Access(cgroupRoot, syscall.W_OK) == nil
+		cgroupAvailBool = unix.Access(cgroupRoot, unix.W_OK) == nil
 	})
 	return cgroupAvailBool
 }
