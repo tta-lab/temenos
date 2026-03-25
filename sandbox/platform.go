@@ -12,6 +12,7 @@ type Options struct {
 	BwrapPath        string // Linux only; defaults to "bwrap"
 	Timeout          time.Duration
 	AllowUnsandboxed bool // if true, fall back to NoopSandbox when no platform sandbox is found
+	MemoryLimitMB    int  // Linux only; 0 = no limit. Requires cgroup v2 + SYS_ADMIN.
 }
 
 // New creates the appropriate sandbox for the current platform.
@@ -27,7 +28,11 @@ func New(opts Options) Sandbox {
 			return sbx
 		}
 	case "linux":
-		sbx := &BwrapSandbox{BwrapPath: cmp.Or(opts.BwrapPath, "bwrap"), Timeout: opts.Timeout}
+		sbx := &BwrapSandbox{
+			BwrapPath:     cmp.Or(opts.BwrapPath, "bwrap"),
+			Timeout:       opts.Timeout,
+			MemoryLimitMB: opts.MemoryLimitMB,
+		}
 		if sbx.IsAvailable() {
 			return sbx
 		}

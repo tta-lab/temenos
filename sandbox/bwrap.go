@@ -14,8 +14,9 @@ import (
 // BwrapSandbox executes commands using bubblewrap (bwrap) namespace isolation.
 // Used on Linux.
 type BwrapSandbox struct {
-	BwrapPath string
-	Timeout   time.Duration
+	BwrapPath     string
+	Timeout       time.Duration
+	MemoryLimitMB int // 0 = no limit
 }
 
 // Exec runs a bash command inside the bubblewrap sandbox.
@@ -30,7 +31,26 @@ func (s *BwrapSandbox) Exec(
 	cmd := exec.CommandContext(ctx, s.BwrapPath, args...)
 	cmd.Env = buildEnv(cfg, "/home/agent")
 
-	return runCmd(ctx, cmd)
+	// Guard: no memory limit configured, or cgroup v2 not available (macOS, unprivileged).
+	if s.MemoryLimitMB <= 0 || !cgroupAvailable() {
+		return runCmd(ctx, cmd)
+	}
+
+	cg, err := newCgroupExec(s.MemoryLimitMB)
+	if err != nil {
+		slog.Warn("sandbox: cgroup setup failed, proceeding without memory limit", "err", err)
+		return runCmd(ctx, cmd)
+	}
+	defer cg.cleanup()
+
+	// postStart adds bwrap's PID to the cgroup between Start() and Wait().
+	// If addPID fails, the process runs unconstrained for this execution — logged but not fatal.
+	return runCmdWithHook(ctx, cmd, func(pid int) {
+		if err := cg.addPID(pid); err != nil {
+			slog.Warn("sandbox: failed to add PID to cgroup, execution runs without memory limit",
+				"pid", pid, "err", err)
+		}
+	})
 }
 
 // IsAvailable checks whether bwrap is available at the configured path.
