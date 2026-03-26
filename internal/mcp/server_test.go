@@ -419,6 +419,8 @@ func TestAppendAncestorPaths_NoDuplicates(t *testing.T) {
 	for _, p := range result {
 		counts[p.Path]++
 	}
+	// 2 originals + 3 ancestors (/Users/neil/Code, /Users/neil, /Users)
+	assert.Equal(t, 5, len(result), "expected 2 originals + 3 shared ancestors")
 	for path, count := range counts {
 		assert.Equal(t, 1, count, "path %s should appear exactly once", path)
 	}
@@ -464,9 +466,14 @@ func TestAppendAncestorPaths_ExcludesRoot(t *testing.T) {
 	}
 }
 
-func TestAppendAncestorPaths_Empty(t *testing.T) {
+func TestAppendAncestorPaths_NilInput(t *testing.T) {
 	result := appendAncestorPaths(nil)
 	assert.Nil(t, result)
+}
+
+func TestAppendAncestorPaths_EmptySlice(t *testing.T) {
+	result := appendAncestorPaths([]client.AllowedPath{})
+	assert.Empty(t, result)
 }
 
 func TestBashHandler_EnvForwardedToRunBlock(t *testing.T) {
