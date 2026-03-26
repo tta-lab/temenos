@@ -89,20 +89,48 @@ func runCmdWithHook(
 }
 
 // buildEnv constructs the environment for a sandboxed process.
-// homeDir sets HOME; if empty, defaults to "/home/agent".
+// fallbackHome sets HOME when cfg.Env does not provide one; if empty, defaults to "/home/agent".
+// If cfg.Env contains a HOME= entry, it takes precedence — allowing the caller (e.g. MCP server)
+// to forward the real HOME so tools can find their config files naturally. The sandbox's
+// filesystem policy (seatbelt/bwrap) is the security boundary, not HOME.
 // PATH is built from buildSandboxPATH() which includes all discovered
 // tool directories (see paths.go).
-func buildEnv(cfg *ExecConfig, homeDir string) []string {
-	home := cmp.Or(homeDir, "/home/agent")
+//
+// Security note: when the real HOME is forwarded, tools like git/curl/ssh will resolve
+// ~/.ssh/config, ~/.netrc, ~/.gitconfig — but only if $HOME is in AllowedPaths. The
+// seatbelt/bwrap policy denies access otherwise. Callers should not add $HOME itself
+// to AllowedPaths; mount specific subdirs (e.g. ~/.config/ttal) instead.
+func buildEnv(cfg *ExecConfig, fallbackHome string) []string {
 	base := []string{
 		"PATH=" + buildSandboxPATH(),
-		"HOME=" + home,
 		"TERM=dumb",
 	}
 	if cfg != nil {
 		base = append(base, cfg.Env...)
 	}
+	// Only inject HOME if the caller's env doesn't already set it.
+	if !envContainsKey(base, "HOME") {
+		home := cmp.Or(fallbackHome, "/home/agent")
+		// Build a new slice to avoid aliasing — append(base[:1], ...) would
+		// overwrite base[1] (TERM) when len==cap (cfg==nil path).
+		result := make([]string, 0, len(base)+1)
+		result = append(result, base[0])
+		result = append(result, "HOME="+home)
+		result = append(result, base[1:]...)
+		base = result
+	}
 	return base
+}
+
+// envContainsKey returns true if the env slice contains a KEY= entry for the given key.
+func envContainsKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, e := range env {
+		if len(e) >= len(prefix) && e[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(s string, maxBytes int) string {

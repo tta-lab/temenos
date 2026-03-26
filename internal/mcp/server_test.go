@@ -146,7 +146,7 @@ func TestBashHandler_SingleCommand(t *testing.T) {
 			return &client.RunResponse{Stdout: "hello\n", Stderr: "", ExitCode: 0}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	result, err := callTool(t, handler, bashInput{Command: "echo hello"})
 	require.NoError(t, err)
 	require.Len(t, result.Content, 1)
@@ -167,7 +167,7 @@ func TestBashHandler_BlockCommand(t *testing.T) {
 			}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	result, err := callTool(t, handler, bashInput{Command: "§ ls\n§ pwd"})
 	require.NoError(t, err)
 	require.Len(t, result.Content, 1)
@@ -183,7 +183,7 @@ func TestBashHandler_NonZeroExitNotAnError(t *testing.T) {
 			return &client.RunResponse{Stdout: "", Stderr: "command not found\n", ExitCode: 127}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	result, err := callTool(t, handler, bashInput{Command: "nonexistent"})
 	require.NoError(t, err)
 	// Non-zero exit code is NOT a tool-level error.
@@ -193,13 +193,13 @@ func TestBashHandler_NonZeroExitNotAnError(t *testing.T) {
 }
 
 func TestBashHandler_EmptyCommand(t *testing.T) {
-	handler := makeBashHandler(&stubClient{}, nil)
+	handler := makeBashHandler(&stubClient{}, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: ""})
 	assert.Error(t, err)
 }
 
 func TestBashHandler_NilParams(t *testing.T) {
-	handler := makeBashHandler(&stubClient{}, nil)
+	handler := makeBashHandler(&stubClient{}, nil, nil)
 	// Simulate malformed client that sends nil Params.
 	_, err := handler(context.Background(), &gosdkmcp.CallToolRequest{Params: nil})
 	require.Error(t, err)
@@ -214,7 +214,7 @@ func TestBashHandler_AllowedPathsPassedThrough(t *testing.T) {
 			return &client.RunResponse{ExitCode: 0}, nil
 		},
 	}
-	handler := makeBashHandler(stub, paths)
+	handler := makeBashHandler(stub, paths, nil)
 	_, err := callTool(t, handler, bashInput{Command: "ls"})
 	require.NoError(t, err)
 }
@@ -226,7 +226,7 @@ func TestBashHandler_TimeoutPassedThrough(t *testing.T) {
 			return &client.RunResponse{ExitCode: 0}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "ls", Timeout: 30})
 	require.NoError(t, err)
 }
@@ -239,7 +239,7 @@ func TestBashHandler_StopOnErrorPassedToBlock(t *testing.T) {
 			return &client.RunBlockResponse{}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "§ ls", StopOnError: &stopFalse})
 	require.NoError(t, err)
 }
@@ -251,7 +251,7 @@ func TestBashHandler_RunErrorPropagated(t *testing.T) {
 			return nil, sandboxErr
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "ls"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sandboxErr)
@@ -264,7 +264,7 @@ func TestBashHandler_RunBlockErrorPropagated(t *testing.T) {
 			return nil, sandboxErr
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "§ ls"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sandboxErr)
@@ -295,4 +295,111 @@ func TestResolveAllowedPaths_CwdIsFirst(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 	assert.Equal(t, cwd, paths[0].Path)
+}
+
+func TestParseTemenosPaths_Empty(t *testing.T) {
+	assert.Nil(t, parseTemenosPaths(""))
+}
+
+func TestParseTemenosPaths_SinglePath(t *testing.T) {
+	paths := parseTemenosPaths("/data/shared")
+	require.Len(t, paths, 1)
+	assert.Equal(t, "/data/shared", paths[0].Path)
+	assert.True(t, paths[0].ReadOnly, "default should be read-only")
+}
+
+func TestParseTemenosPaths_ReadWriteModifier(t *testing.T) {
+	paths := parseTemenosPaths("/data/shared:rw")
+	require.Len(t, paths, 1)
+	assert.Equal(t, "/data/shared", paths[0].Path)
+	assert.False(t, paths[0].ReadOnly)
+}
+
+func TestParseTemenosPaths_ReadOnlyModifier(t *testing.T) {
+	paths := parseTemenosPaths("/config:ro")
+	require.Len(t, paths, 1)
+	assert.Equal(t, "/config", paths[0].Path)
+	assert.True(t, paths[0].ReadOnly)
+}
+
+func TestParseTemenosPaths_MultiplePaths(t *testing.T) {
+	paths := parseTemenosPaths("/home/.ttal:rw,/home/.task:rw,/home/.config/ttal:ro")
+	require.Len(t, paths, 3)
+	assert.Equal(t, "/home/.ttal", paths[0].Path)
+	assert.False(t, paths[0].ReadOnly)
+	assert.Equal(t, "/home/.task", paths[1].Path)
+	assert.False(t, paths[1].ReadOnly)
+	assert.Equal(t, "/home/.config/ttal", paths[2].Path)
+	assert.True(t, paths[2].ReadOnly)
+}
+
+func TestParseTemenosPaths_DefaultReadOnly(t *testing.T) {
+	paths := parseTemenosPaths("/data:rw,/config:ro,/logs")
+	require.Len(t, paths, 3)
+	assert.Equal(t, "/data", paths[0].Path)
+	assert.False(t, paths[0].ReadOnly)
+	assert.Equal(t, "/config", paths[1].Path)
+	assert.True(t, paths[1].ReadOnly)
+	assert.Equal(t, "/logs", paths[2].Path)
+	assert.True(t, paths[2].ReadOnly, "no suffix should default to read-only")
+}
+
+func TestResolveAllowedPaths_IncludesTemenosPaths(t *testing.T) {
+	t.Setenv("TEMENOS_PATHS", "/extra/path:rw")
+	t.Setenv("TEMENOS_WRITE", "")
+	paths, err := resolveAllowedPaths()
+	require.NoError(t, err)
+	// Should have at least cwd + /extra/path.
+	found := false
+	for _, p := range paths {
+		if p.Path == "/extra/path" {
+			found = true
+			assert.False(t, p.ReadOnly)
+		}
+	}
+	assert.True(t, found, "TEMENOS_PATHS entry should be in allowed paths")
+}
+
+func TestCollectSandboxEnv_ForwardsAllEnv(t *testing.T) {
+	t.Setenv("TTAL_JOB_ID", "abc123")
+	t.Setenv("TASKRC", "/path/to/taskrc")
+	t.Setenv("CUSTOM_VAR", "custom-value")
+
+	env := collectSandboxEnv()
+	assert.Equal(t, "abc123", env["TTAL_JOB_ID"])
+	assert.Equal(t, "/path/to/taskrc", env["TASKRC"])
+	assert.Equal(t, "custom-value", env["CUSTOM_VAR"])
+}
+
+func TestCollectSandboxEnv_IncludesAllProcessEnv(t *testing.T) {
+	env := collectSandboxEnv()
+	// Should contain at least PATH and HOME from the process.
+	assert.NotEmpty(t, env["PATH"])
+	assert.NotEmpty(t, env["HOME"])
+}
+
+func TestBashHandler_EnvForwardedToRun(t *testing.T) {
+	env := map[string]string{"TTAL_JOB_ID": "test123"}
+	stub := &stubClient{
+		runFunc: func(_ context.Context, req client.RunRequest) (*client.RunResponse, error) {
+			assert.Equal(t, env, req.Env)
+			return &client.RunResponse{ExitCode: 0}, nil
+		},
+	}
+	handler := makeBashHandler(stub, nil, env)
+	_, err := callTool(t, handler, bashInput{Command: "ls"})
+	require.NoError(t, err)
+}
+
+func TestBashHandler_EnvForwardedToRunBlock(t *testing.T) {
+	env := map[string]string{"TTAL_AGENT_NAME": "worker"}
+	stub := &stubClient{
+		runBlockFunc: func(_ context.Context, req client.RunBlockRequest) (*client.RunBlockResponse, error) {
+			assert.Equal(t, env, req.Env)
+			return &client.RunBlockResponse{}, nil
+		},
+	}
+	handler := makeBashHandler(stub, nil, env)
+	_, err := callTool(t, handler, bashInput{Command: "§ ls"})
+	require.NoError(t, err)
 }

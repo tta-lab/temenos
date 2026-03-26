@@ -88,9 +88,34 @@ func TestBuildEnv_Nil(t *testing.T) {
 	assert.Len(t, env, 3) // PATH, HOME, TERM
 }
 
-func TestBuildEnv_WithHomeDir(t *testing.T) {
+func TestBuildEnv_WithFallbackHome(t *testing.T) {
 	env := buildEnv(nil, "/tmp/ttal-agent-12345")
 	assert.Contains(t, env, "HOME=/tmp/ttal-agent-12345")
+}
+
+func TestBuildEnv_CallerHomeOverridesFallback(t *testing.T) {
+	cfg := &ExecConfig{
+		Env: []string{"HOME=/Users/real", "FOO=bar"},
+	}
+	env := buildEnv(cfg, "/tmp/ttal-agent-fake")
+	// Caller's HOME should win — fallback should NOT be injected.
+	assert.Contains(t, env, "HOME=/Users/real")
+	assert.NotContains(t, env, "HOME=/tmp/ttal-agent-fake")
+	assert.Contains(t, env, "FOO=bar")
+}
+
+func TestBuildEnv_NoDoubleHome(t *testing.T) {
+	cfg := &ExecConfig{
+		Env: []string{"HOME=/Users/real"},
+	}
+	env := buildEnv(cfg, "/tmp/fallback")
+	homeCount := 0
+	for _, e := range env {
+		if len(e) >= 5 && e[:5] == "HOME=" {
+			homeCount++
+		}
+	}
+	assert.Equal(t, 1, homeCount, "should have exactly one HOME entry")
 }
 
 func TestRunCmdWithHook_HookReceivesValidPID(t *testing.T) {

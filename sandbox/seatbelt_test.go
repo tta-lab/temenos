@@ -175,5 +175,5 @@ func TestSeatbeltSandbox_TempHomeCleanup(t *testing.T) {
 
 	entries, err = filepath.Glob("/tmp/ttal-agent-*")
 	require.NoError(t, err)
-	assert.Equal(t, before, len(entries), "temp HOME dirs should be cleaned up after Exec")
+	assert.Equal(t, before, len(entries), "temp dirs should be cleaned up after Exec")
 }

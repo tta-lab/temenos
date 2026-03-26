@@ -67,6 +67,8 @@ func Serve(version string) error {
 		return fmt.Errorf("mcp: %w", err)
 	}
 
+	sandboxEnv := collectSandboxEnv()
+
 	c, err := client.New("")
 	if err != nil {
 		return fmt.Errorf("mcp: cannot create temenos client: %w", err)
@@ -82,7 +84,7 @@ func Serve(version string) error {
 		Description: "Execute a command in a sandboxed environment. " +
 			"For multiple commands, prefix each with § on its own line.",
 		InputSchema: json.RawMessage(bashToolSchema),
-	}, makeBashHandler(c, allowedPaths))
+	}, makeBashHandler(c, allowedPaths, sandboxEnv))
 
 	if err := srv.Run(context.Background(), &gosdkmcp.StdioTransport{}); err != nil {
 		return fmt.Errorf("mcp: server exited with error: %w", err)
@@ -92,6 +94,7 @@ func Serve(version string) error {
 
 // resolveAllowedPaths builds the sandbox allowed paths from env config:
 //   - cwd: the working directory (read-write if TEMENOS_WRITE=true, else read-only)
+//   - TEMENOS_PATHS: comma-separated list of additional paths (format: path or path:ro or path:rw)
 //   - ~/.ttal/daemon.sock: ttal daemon socket for ttal commands inside sandbox
 func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	cwd, err := os.Getwd()
@@ -105,6 +108,9 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 		{Path: cwd, ReadOnly: !writeMode},
 	}
 
+	// Parse TEMENOS_PATHS for additional allowed paths.
+	paths = append(paths, parseTemenosPaths(os.Getenv("TEMENOS_PATHS"))...)
+
 	// Mount ttal daemon socket for ttal commands (e.g. ttal ask) inside sandbox.
 	// This is safe: daemon.sock has a scoped API, no filesystem escape.
 	// Never mount temenos.sock — it accepts arbitrary allowed_paths (sandbox escape).
@@ -116,6 +122,66 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	}
 
 	return paths, nil
+}
+
+// parseTemenosPaths parses a comma-separated list of paths with optional :ro/:rw suffix.
+// Format: path[:ro|:rw] — default is read-only. Example:
+//
+//	/home/.ttal:rw,/home/.task:rw,/home/.config/ttal:ro
+//
+// Path validation (absolute path check, .. filtering) is handled by the daemon's
+// validatePath at the HTTP layer. This function only parses the format.
+func parseTemenosPaths(raw string) []client.AllowedPath {
+	if raw == "" {
+		return nil
+	}
+	var paths []client.AllowedPath
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		readOnly := true
+		if strings.HasSuffix(entry, ":rw") {
+			readOnly = false
+			entry = strings.TrimSuffix(entry, ":rw")
+		} else if strings.HasSuffix(entry, ":ro") {
+			entry = strings.TrimSuffix(entry, ":ro")
+		}
+		if entry != "" {
+			paths = append(paths, client.AllowedPath{Path: entry, ReadOnly: readOnly})
+		}
+	}
+	return paths
+}
+
+// collectSandboxEnv forwards all env vars from the MCP server process into the sandbox.
+//
+// This is MCP-specific: the MCP server is a long-lived intermediary that receives tool
+// calls and proxies them to the daemon. It needs to forward its own process env (set by
+// ttal-cli) because the daemon's Env field is opt-in — direct API callers set Env
+// explicitly in their RunRequest, so they don't need automatic collection.
+//
+// The sandbox already constructs a clean base env (PATH, HOME, TERM) — these vars are
+// appended. The MCP server's env is curated by its parent (ttal-cli), so everything
+// present is intentionally set. The sandbox's security boundary is filesystem access,
+// not env filtering.
+//
+// Security: this forwards the entire process env, which may include credential vars
+// (API keys, tokens) inherited from the parent shell. The MCP server should be launched
+// with a curated env (e.g. `env VAR=val ... temenos mcp`) rather than inheriting a full
+// interactive shell environment. Network-capable sandboxed commands could exfiltrate env
+// vars via the network, which the sandbox does not restrict.
+func collectSandboxEnv() map[string]string {
+	env := make(map[string]string)
+	for _, kv := range os.Environ() {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		env[key] = val
+	}
+	return env
 }
 
 // resolveTTalDaemonSocket returns the path to the ttal daemon socket.
@@ -142,7 +208,9 @@ func resolveTTalDaemonSocket() (string, error) {
 
 // makeBashHandler returns the MCP ToolHandler for the bash tool.
 // Single commands route to /run; multi-command blocks (§ prefix) route to /run-block.
-func makeBashHandler(c sandboxClient, allowedPaths []client.AllowedPath) gosdkmcp.ToolHandler {
+func makeBashHandler(
+	c sandboxClient, allowedPaths []client.AllowedPath, sandboxEnv map[string]string,
+) gosdkmcp.ToolHandler {
 	return func(ctx context.Context, req *gosdkmcp.CallToolRequest) (*gosdkmcp.CallToolResult, error) {
 		if req.Params == nil {
 			return nil, fmt.Errorf("bash: missing tool call parameters")
@@ -156,9 +224,9 @@ func makeBashHandler(c sandboxClient, allowedPaths []client.AllowedPath) gosdkmc
 		}
 
 		if isBlockCommand(input.Command) {
-			return runBlock(ctx, c, input, allowedPaths)
+			return runBlock(ctx, c, input, allowedPaths, sandboxEnv)
 		}
-		return runSingle(ctx, c, input, allowedPaths)
+		return runSingle(ctx, c, input, allowedPaths, sandboxEnv)
 	}
 }
 
@@ -182,11 +250,13 @@ func runSingle(
 	c sandboxClient,
 	input bashInput,
 	allowedPaths []client.AllowedPath,
+	sandboxEnv map[string]string,
 ) (*gosdkmcp.CallToolResult, error) {
 	resp, err := c.Run(ctx, client.RunRequest{
 		Command:      input.Command,
 		Timeout:      input.Timeout,
 		AllowedPaths: allowedPaths,
+		Env:          sandboxEnv,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("bash: sandbox execution failed: %w", err)
@@ -204,6 +274,7 @@ func runBlock(
 	c sandboxClient,
 	input bashInput,
 	allowedPaths []client.AllowedPath,
+	sandboxEnv map[string]string,
 ) (*gosdkmcp.CallToolResult, error) {
 	resp, err := c.RunBlock(ctx, client.RunBlockRequest{
 		Block:        input.Command,
@@ -211,6 +282,7 @@ func runBlock(
 		StopOnError:  input.StopOnError,
 		Timeout:      input.Timeout,
 		AllowedPaths: allowedPaths,
+		Env:          sandboxEnv,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("bash: sandbox block execution failed: %w", err)
