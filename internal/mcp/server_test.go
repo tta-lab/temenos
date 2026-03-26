@@ -397,14 +397,15 @@ func TestAppendAncestorPaths_AddsAncestors(t *testing.T) {
 	}
 	result := appendAncestorPaths(paths)
 
-	ancestorSet := make(map[string]bool)
-	for _, p := range result[1:] { // skip the original
-		ancestorSet[p.Path] = true
-		assert.True(t, p.ReadOnly, "ancestor %s should be read-only", p.Path)
+	byPath := make(map[string]client.AllowedPath)
+	for _, p := range result {
+		byPath[p.Path] = p
 	}
-	assert.True(t, ancestorSet["/Users/neil/Code"])
-	assert.True(t, ancestorSet["/Users/neil"])
-	assert.True(t, ancestorSet["/Users"])
+	for _, ancestor := range []string{"/Users/neil/Code", "/Users/neil", "/Users"} {
+		p, ok := byPath[ancestor]
+		assert.True(t, ok, "ancestor %s should be present", ancestor)
+		assert.True(t, p.ReadOnly, "ancestor %s should be read-only", ancestor)
+	}
 }
 
 func TestAppendAncestorPaths_NoDuplicates(t *testing.T) {
@@ -441,6 +442,25 @@ func TestAppendAncestorPaths_DoesNotDuplicateExisting(t *testing.T) {
 			assert.False(t, p.ReadOnly, "original rw entry should be preserved")
 			break
 		}
+	}
+}
+
+func TestAppendAncestorPaths_SingleComponentPath(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/tmp", ReadOnly: true},
+	}
+	result := appendAncestorPaths(paths)
+	// /tmp's only parent is /, which is excluded — no ancestors added.
+	assert.Len(t, result, 1)
+}
+
+func TestAppendAncestorPaths_ExcludesRoot(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil", ReadOnly: false},
+	}
+	result := appendAncestorPaths(paths)
+	for _, p := range result {
+		assert.NotEqual(t, "/", p.Path, "root should not be added as ancestor")
 	}
 }
 

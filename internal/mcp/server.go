@@ -163,8 +163,9 @@ func parseTemenosPaths(raw string) []client.AllowedPath {
 
 // appendAncestorPaths adds read-only entries for every ancestor directory of the
 // existing allowed paths. This lets sandboxed processes stat parent directories
-// (needed by e.g. git rev-parse --path-format=absolute) without granting read
-// access to their contents. Paths already present in the list are not duplicated.
+// (needed by e.g. git rev-parse --path-format=absolute) without granting write
+// access to their contents. Root (/) is excluded because the base sandbox policy
+// already covers it. Paths already present in the list are not duplicated.
 func appendAncestorPaths(paths []client.AllowedPath) []client.AllowedPath {
 	existing := make(map[string]bool, len(paths))
 	for _, p := range paths {
@@ -174,7 +175,7 @@ func appendAncestorPaths(paths []client.AllowedPath) []client.AllowedPath {
 	var ancestors []client.AllowedPath
 	for _, p := range paths {
 		dir := filepath.Dir(p.Path)
-		for dir != "/" && dir != "." && dir != p.Path {
+		for dir != "/" && dir != "." {
 			if !existing[dir] {
 				existing[dir] = true
 				ancestors = append(ancestors, client.AllowedPath{Path: dir, ReadOnly: true})
