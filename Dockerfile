@@ -19,7 +19,7 @@ RUN apk add --no-cache \
     jq
 
 COPY --from=builder /app/temenos /usr/local/bin/temenos
-COPY --from=organon /usr/local/bin/src /usr/local/bin/url /usr/local/bin/web /usr/local/bin/
+COPY --from=organon /usr/local/bin/src /usr/local/bin/web /usr/local/bin/
 
 # TCP mode: unauthenticated plain HTTP. Restrict access via Kubernetes NetworkPolicy.
 ENV TEMENOS_LISTEN_ADDR=:8081
