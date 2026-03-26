@@ -94,7 +94,7 @@ func Serve(version string) error {
 
 // resolveAllowedPaths builds the sandbox allowed paths from env config:
 //   - cwd: the working directory (read-write if TEMENOS_WRITE=true, else read-only)
-//   - TEMENOS_PATHS: colon-separated list of additional paths (format: path or path:ro or path:rw)
+//   - TEMENOS_PATHS: comma-separated list of additional paths (format: path or path:ro or path:rw)
 //   - ~/.ttal/daemon.sock: ttal daemon socket for ttal commands inside sandbox
 func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	cwd, err := os.Getwd()
@@ -128,6 +128,9 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 // Format: path[:ro|:rw] — default is read-only. Example:
 //
 //	/home/.ttal:rw,/home/.task:rw,/home/.config/ttal:ro
+//
+// Path validation (absolute path check, .. filtering) is handled by the daemon's
+// validatePath at the HTTP layer. This function only parses the format.
 func parseTemenosPaths(raw string) []client.AllowedPath {
 	if raw == "" {
 		return nil
@@ -163,6 +166,12 @@ func parseTemenosPaths(raw string) []client.AllowedPath {
 // appended. The MCP server's env is curated by its parent (ttal-cli), so everything
 // present is intentionally set. The sandbox's security boundary is filesystem access,
 // not env filtering.
+//
+// Security: this forwards the entire process env, which may include credential vars
+// (API keys, tokens) inherited from the parent shell. The MCP server should be launched
+// with a curated env (e.g. `env VAR=val ... temenos mcp`) rather than inheriting a full
+// interactive shell environment. Network-capable sandboxed commands could exfiltrate env
+// vars via the network, which the sandbox does not restrict.
 func collectSandboxEnv() map[string]string {
 	env := make(map[string]string)
 	for _, kv := range os.Environ() {

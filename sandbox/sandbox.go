@@ -95,6 +95,11 @@ func runCmdWithHook(
 // filesystem policy (seatbelt/bwrap) is the security boundary, not HOME.
 // PATH is built from buildSandboxPATH() which includes all discovered
 // tool directories (see paths.go).
+//
+// Security note: when the real HOME is forwarded, tools like git/curl/ssh will resolve
+// ~/.ssh/config, ~/.netrc, ~/.gitconfig — but only if $HOME is in AllowedPaths. The
+// seatbelt/bwrap policy denies access otherwise. Callers should not add $HOME itself
+// to AllowedPaths; mount specific subdirs (e.g. ~/.config/ttal) instead.
 func buildEnv(cfg *ExecConfig, fallbackHome string) []string {
 	base := []string{
 		"PATH=" + buildSandboxPATH(),
@@ -106,8 +111,13 @@ func buildEnv(cfg *ExecConfig, fallbackHome string) []string {
 	// Only inject HOME if the caller's env doesn't already set it.
 	if !envContainsKey(base, "HOME") {
 		home := cmp.Or(fallbackHome, "/home/agent")
-		// Insert HOME right after PATH for consistent ordering.
-		base = append(base[:1], append([]string{"HOME=" + home}, base[1:]...)...)
+		// Build a new slice to avoid aliasing — append(base[:1], ...) would
+		// overwrite base[1] (TERM) when len==cap (cfg==nil path).
+		result := make([]string, 0, len(base)+1)
+		result = append(result, base[0])
+		result = append(result, "HOME="+home)
+		result = append(result, base[1:]...)
+		base = result
 	}
 	return base
 }
