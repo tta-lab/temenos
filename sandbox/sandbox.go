@@ -89,20 +89,38 @@ func runCmdWithHook(
 }
 
 // buildEnv constructs the environment for a sandboxed process.
-// homeDir sets HOME; if empty, defaults to "/home/agent".
+// fallbackHome sets HOME when cfg.Env does not provide one; if empty, defaults to "/home/agent".
+// If cfg.Env contains a HOME= entry, it takes precedence — allowing the caller (e.g. MCP server)
+// to forward the real HOME so tools can find their config files naturally. The sandbox's
+// filesystem policy (seatbelt/bwrap) is the security boundary, not HOME.
 // PATH is built from buildSandboxPATH() which includes all discovered
 // tool directories (see paths.go).
-func buildEnv(cfg *ExecConfig, homeDir string) []string {
-	home := cmp.Or(homeDir, "/home/agent")
+func buildEnv(cfg *ExecConfig, fallbackHome string) []string {
 	base := []string{
 		"PATH=" + buildSandboxPATH(),
-		"HOME=" + home,
 		"TERM=dumb",
 	}
 	if cfg != nil {
 		base = append(base, cfg.Env...)
 	}
+	// Only inject HOME if the caller's env doesn't already set it.
+	if !envContainsKey(base, "HOME") {
+		home := cmp.Or(fallbackHome, "/home/agent")
+		// Insert HOME right after PATH for consistent ordering.
+		base = append(base[:1], append([]string{"HOME=" + home}, base[1:]...)...)
+	}
 	return base
+}
+
+// envContainsKey returns true if the env slice contains a KEY= entry for the given key.
+func envContainsKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, e := range env {
+		if len(e) >= len(prefix) && e[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(s string, maxBytes int) string {

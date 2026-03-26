@@ -23,14 +23,17 @@ func (s *SeatbeltSandbox) Exec(
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Create a temp HOME dir — always clean up, even on error or timeout.
-	homeDir, err := os.MkdirTemp("/tmp", "ttal-agent-")
+	// Create a temp dir for fallback working directory — always clean up.
+	// This is NOT used as HOME; HOME comes from cfg.Env (forwarded by caller)
+	// or falls back to a default. The sandbox's seatbelt policy controls
+	// filesystem access, not HOME.
+	tmpDir, err := os.MkdirTemp("/tmp", "ttal-agent-")
 	if err != nil {
-		return "", "", -1, fmt.Errorf("create temp home: %w", err)
+		return "", "", -1, fmt.Errorf("create temp workdir: %w", err)
 	}
 	defer func() {
-		if rmErr := os.RemoveAll(homeDir); rmErr != nil {
-			slog.Warn("seatbelt: failed to remove temp home dir", "path", homeDir, "err", rmErr)
+		if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+			slog.Warn("seatbelt: failed to remove temp dir", "path", tmpDir, "err", rmErr)
 		}
 	}()
 
@@ -45,13 +48,13 @@ func (s *SeatbeltSandbox) Exec(
 	args = append(args, "--", "bash", "-c", command)
 
 	cmd := exec.CommandContext(ctx, "/usr/bin/sandbox-exec", args...)
-	cmd.Env = buildEnv(cfg, homeDir)
+	cmd.Env = buildEnv(cfg, tmpDir)
 	// Use WorkingDir if provided (within allowed paths), otherwise
-	// fall back to temp homeDir to avoid getcwd errors.
+	// fall back to temp dir to avoid getcwd errors.
 	if cfg != nil && cfg.WorkingDir != "" {
 		cmd.Dir = cfg.WorkingDir
 	} else {
-		cmd.Dir = homeDir
+		cmd.Dir = tmpDir
 	}
 
 	return runCmd(ctx, cmd)
