@@ -146,7 +146,7 @@ func TestBashHandler_SingleCommand(t *testing.T) {
 			return &client.RunResponse{Stdout: "hello\n", Stderr: "", ExitCode: 0}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	result, err := callTool(t, handler, bashInput{Command: "echo hello"})
 	require.NoError(t, err)
 	require.Len(t, result.Content, 1)
@@ -167,7 +167,7 @@ func TestBashHandler_BlockCommand(t *testing.T) {
 			}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	result, err := callTool(t, handler, bashInput{Command: "§ ls\n§ pwd"})
 	require.NoError(t, err)
 	require.Len(t, result.Content, 1)
@@ -183,7 +183,7 @@ func TestBashHandler_NonZeroExitNotAnError(t *testing.T) {
 			return &client.RunResponse{Stdout: "", Stderr: "command not found\n", ExitCode: 127}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	result, err := callTool(t, handler, bashInput{Command: "nonexistent"})
 	require.NoError(t, err)
 	// Non-zero exit code is NOT a tool-level error.
@@ -193,13 +193,13 @@ func TestBashHandler_NonZeroExitNotAnError(t *testing.T) {
 }
 
 func TestBashHandler_EmptyCommand(t *testing.T) {
-	handler := makeBashHandler(&stubClient{}, nil)
+	handler := makeBashHandler(&stubClient{}, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: ""})
 	assert.Error(t, err)
 }
 
 func TestBashHandler_NilParams(t *testing.T) {
-	handler := makeBashHandler(&stubClient{}, nil)
+	handler := makeBashHandler(&stubClient{}, nil, nil)
 	// Simulate malformed client that sends nil Params.
 	_, err := handler(context.Background(), &gosdkmcp.CallToolRequest{Params: nil})
 	require.Error(t, err)
@@ -214,7 +214,7 @@ func TestBashHandler_AllowedPathsPassedThrough(t *testing.T) {
 			return &client.RunResponse{ExitCode: 0}, nil
 		},
 	}
-	handler := makeBashHandler(stub, paths)
+	handler := makeBashHandler(stub, paths, nil)
 	_, err := callTool(t, handler, bashInput{Command: "ls"})
 	require.NoError(t, err)
 }
@@ -226,7 +226,7 @@ func TestBashHandler_TimeoutPassedThrough(t *testing.T) {
 			return &client.RunResponse{ExitCode: 0}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "ls", Timeout: 30})
 	require.NoError(t, err)
 }
@@ -239,7 +239,7 @@ func TestBashHandler_StopOnErrorPassedToBlock(t *testing.T) {
 			return &client.RunBlockResponse{}, nil
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "§ ls", StopOnError: &stopFalse})
 	require.NoError(t, err)
 }
@@ -251,7 +251,7 @@ func TestBashHandler_RunErrorPropagated(t *testing.T) {
 			return nil, sandboxErr
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "ls"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sandboxErr)
@@ -264,7 +264,7 @@ func TestBashHandler_RunBlockErrorPropagated(t *testing.T) {
 			return nil, sandboxErr
 		},
 	}
-	handler := makeBashHandler(stub, nil)
+	handler := makeBashHandler(stub, nil, nil)
 	_, err := callTool(t, handler, bashInput{Command: "§ ls"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sandboxErr)
@@ -295,4 +295,123 @@ func TestResolveAllowedPaths_CwdIsFirst(t *testing.T) {
 	cwd, err := os.Getwd()
 	require.NoError(t, err)
 	assert.Equal(t, cwd, paths[0].Path)
+}
+
+func TestParseTemenosPaths_Empty(t *testing.T) {
+	assert.Nil(t, parseTemenosPaths(""))
+}
+
+func TestParseTemenosPaths_SinglePath(t *testing.T) {
+	paths := parseTemenosPaths("/data/shared")
+	require.Len(t, paths, 1)
+	assert.Equal(t, "/data/shared", paths[0].Path)
+	assert.True(t, paths[0].ReadOnly, "default should be read-only")
+}
+
+func TestParseTemenosPaths_ReadWriteModifier(t *testing.T) {
+	paths := parseTemenosPaths("/data/shared:rw")
+	require.Len(t, paths, 1)
+	assert.Equal(t, "/data/shared", paths[0].Path)
+	assert.False(t, paths[0].ReadOnly)
+}
+
+func TestParseTemenosPaths_ReadOnlyModifier(t *testing.T) {
+	paths := parseTemenosPaths("/config:ro")
+	require.Len(t, paths, 1)
+	assert.Equal(t, "/config", paths[0].Path)
+	assert.True(t, paths[0].ReadOnly)
+}
+
+func TestParseTemenosPaths_MultiplePaths(t *testing.T) {
+	paths := parseTemenosPaths("/data:rw:/config:ro:/logs")
+	require.Len(t, paths, 3)
+	assert.Equal(t, "/data", paths[0].Path)
+	assert.False(t, paths[0].ReadOnly)
+	assert.Equal(t, "/config", paths[1].Path)
+	assert.True(t, paths[1].ReadOnly)
+	assert.Equal(t, "/logs", paths[2].Path)
+	assert.True(t, paths[2].ReadOnly)
+}
+
+func TestResolveAllowedPaths_IncludesTemenosPaths(t *testing.T) {
+	t.Setenv("TEMENOS_PATHS", "/extra/path:rw")
+	t.Setenv("TEMENOS_WRITE", "")
+	paths, err := resolveAllowedPaths()
+	require.NoError(t, err)
+	// Should have at least cwd + /extra/path.
+	found := false
+	for _, p := range paths {
+		if p.Path == "/extra/path" {
+			found = true
+			assert.False(t, p.ReadOnly)
+		}
+	}
+	assert.True(t, found, "TEMENOS_PATHS entry should be in allowed paths")
+}
+
+func TestCollectSandboxEnv_ForwardsTTAL(t *testing.T) {
+	t.Setenv("TTAL_JOB_ID", "abc123")
+	t.Setenv("TTAL_AGENT_NAME", "worker")
+	t.Setenv("TASKRC", "/path/to/taskrc")
+	t.Setenv("FORGEJO_URL", "https://forgejo.example.com")
+	t.Setenv("UNRELATED_VAR", "should-not-appear")
+
+	env := collectSandboxEnv()
+	assert.Equal(t, "abc123", env["TTAL_JOB_ID"])
+	assert.Equal(t, "worker", env["TTAL_AGENT_NAME"])
+	assert.Equal(t, "/path/to/taskrc", env["TASKRC"])
+	assert.Equal(t, "https://forgejo.example.com", env["FORGEJO_URL"])
+	assert.NotContains(t, env, "UNRELATED_VAR")
+}
+
+func TestCollectSandboxEnv_EmptyWhenNoVars(t *testing.T) {
+	// Clear all forwarded vars.
+	t.Setenv("TTAL_JOB_ID", "")
+	t.Setenv("TTAL_AGENT_NAME", "")
+	t.Setenv("TASKRC", "")
+	t.Setenv("FORGEJO_URL", "")
+
+	env := collectSandboxEnv()
+	// Empty strings are still collected (env var is set, just empty).
+	// The important thing is no extra vars leak in.
+	for k := range env {
+		matched := false
+		for _, prefix := range forwardedEnvPrefixes {
+			if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+				matched = true
+			}
+		}
+		for _, name := range forwardedEnvKeys {
+			if k == name {
+				matched = true
+			}
+		}
+		assert.True(t, matched, "unexpected key in sandbox env: %s", k)
+	}
+}
+
+func TestBashHandler_EnvForwardedToRun(t *testing.T) {
+	env := map[string]string{"TTAL_JOB_ID": "test123"}
+	stub := &stubClient{
+		runFunc: func(_ context.Context, req client.RunRequest) (*client.RunResponse, error) {
+			assert.Equal(t, env, req.Env)
+			return &client.RunResponse{ExitCode: 0}, nil
+		},
+	}
+	handler := makeBashHandler(stub, nil, env)
+	_, err := callTool(t, handler, bashInput{Command: "ls"})
+	require.NoError(t, err)
+}
+
+func TestBashHandler_EnvForwardedToRunBlock(t *testing.T) {
+	env := map[string]string{"TTAL_AGENT_NAME": "worker"}
+	stub := &stubClient{
+		runBlockFunc: func(_ context.Context, req client.RunBlockRequest) (*client.RunBlockResponse, error) {
+			assert.Equal(t, env, req.Env)
+			return &client.RunBlockResponse{}, nil
+		},
+	}
+	handler := makeBashHandler(stub, nil, env)
+	_, err := callTool(t, handler, bashInput{Command: "§ ls"})
+	require.NoError(t, err)
 }

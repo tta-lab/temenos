@@ -67,6 +67,8 @@ func Serve(version string) error {
 		return fmt.Errorf("mcp: %w", err)
 	}
 
+	sandboxEnv := collectSandboxEnv()
+
 	c, err := client.New("")
 	if err != nil {
 		return fmt.Errorf("mcp: cannot create temenos client: %w", err)
@@ -82,7 +84,7 @@ func Serve(version string) error {
 		Description: "Execute a command in a sandboxed environment. " +
 			"For multiple commands, prefix each with § on its own line.",
 		InputSchema: json.RawMessage(bashToolSchema),
-	}, makeBashHandler(c, allowedPaths))
+	}, makeBashHandler(c, allowedPaths, sandboxEnv))
 
 	if err := srv.Run(context.Background(), &gosdkmcp.StdioTransport{}); err != nil {
 		return fmt.Errorf("mcp: server exited with error: %w", err)
@@ -90,8 +92,15 @@ func Serve(version string) error {
 	return nil
 }
 
+// forwardedEnvPrefixes lists env var prefixes to forward into the sandbox.
+var forwardedEnvPrefixes = []string{"TTAL_"}
+
+// forwardedEnvKeys lists specific env var names to forward into the sandbox.
+var forwardedEnvKeys = []string{"TASKRC", "FORGEJO_URL"}
+
 // resolveAllowedPaths builds the sandbox allowed paths from env config:
 //   - cwd: the working directory (read-write if TEMENOS_WRITE=true, else read-only)
+//   - TEMENOS_PATHS: colon-separated list of additional paths (format: path or path:ro or path:rw)
 //   - ~/.ttal/daemon.sock: ttal daemon socket for ttal commands inside sandbox
 func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	cwd, err := os.Getwd()
@@ -105,6 +114,9 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 		{Path: cwd, ReadOnly: !writeMode},
 	}
 
+	// Parse TEMENOS_PATHS for additional allowed paths.
+	paths = append(paths, parseTemenosPaths(os.Getenv("TEMENOS_PATHS"))...)
+
 	// Mount ttal daemon socket for ttal commands (e.g. ttal ask) inside sandbox.
 	// This is safe: daemon.sock has a scoped API, no filesystem escape.
 	// Never mount temenos.sock — it accepts arbitrary allowed_paths (sandbox escape).
@@ -116,6 +128,61 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	}
 
 	return paths, nil
+}
+
+// parseTemenosPaths parses a colon-separated list of paths with optional access mode suffix.
+// Format: path[:ro|:rw] — default is read-only. Example:
+//
+//	/data/shared:rw:/config:ro:/logs
+func parseTemenosPaths(raw string) []client.AllowedPath {
+	if raw == "" {
+		return nil
+	}
+	var paths []client.AllowedPath
+	segments := strings.Split(raw, ":")
+	for i := 0; i < len(segments); i++ {
+		seg := strings.TrimSpace(segments[i])
+		if seg == "" {
+			continue
+		}
+		readOnly := true
+		if i+1 < len(segments) {
+			switch strings.TrimSpace(segments[i+1]) {
+			case "rw":
+				readOnly = false
+				i++ // consume modifier
+			case "ro":
+				i++ // consume modifier
+			}
+		}
+		paths = append(paths, client.AllowedPath{Path: seg, ReadOnly: readOnly})
+	}
+	return paths
+}
+
+// collectSandboxEnv gathers env vars that should be forwarded into the sandbox.
+// This includes TTAL_* vars and specific keys like TASKRC and FORGEJO_URL.
+func collectSandboxEnv() map[string]string {
+	env := make(map[string]string)
+	for _, kv := range os.Environ() {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		for _, prefix := range forwardedEnvPrefixes {
+			if strings.HasPrefix(key, prefix) {
+				env[key] = val
+				break
+			}
+		}
+		for _, name := range forwardedEnvKeys {
+			if key == name {
+				env[key] = val
+				break
+			}
+		}
+	}
+	return env
 }
 
 // resolveTTalDaemonSocket returns the path to the ttal daemon socket.
@@ -142,7 +209,9 @@ func resolveTTalDaemonSocket() (string, error) {
 
 // makeBashHandler returns the MCP ToolHandler for the bash tool.
 // Single commands route to /run; multi-command blocks (§ prefix) route to /run-block.
-func makeBashHandler(c sandboxClient, allowedPaths []client.AllowedPath) gosdkmcp.ToolHandler {
+func makeBashHandler(
+	c sandboxClient, allowedPaths []client.AllowedPath, sandboxEnv map[string]string,
+) gosdkmcp.ToolHandler {
 	return func(ctx context.Context, req *gosdkmcp.CallToolRequest) (*gosdkmcp.CallToolResult, error) {
 		if req.Params == nil {
 			return nil, fmt.Errorf("bash: missing tool call parameters")
@@ -156,9 +225,9 @@ func makeBashHandler(c sandboxClient, allowedPaths []client.AllowedPath) gosdkmc
 		}
 
 		if isBlockCommand(input.Command) {
-			return runBlock(ctx, c, input, allowedPaths)
+			return runBlock(ctx, c, input, allowedPaths, sandboxEnv)
 		}
-		return runSingle(ctx, c, input, allowedPaths)
+		return runSingle(ctx, c, input, allowedPaths, sandboxEnv)
 	}
 }
 
@@ -182,11 +251,13 @@ func runSingle(
 	c sandboxClient,
 	input bashInput,
 	allowedPaths []client.AllowedPath,
+	sandboxEnv map[string]string,
 ) (*gosdkmcp.CallToolResult, error) {
 	resp, err := c.Run(ctx, client.RunRequest{
 		Command:      input.Command,
 		Timeout:      input.Timeout,
 		AllowedPaths: allowedPaths,
+		Env:          sandboxEnv,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("bash: sandbox execution failed: %w", err)
@@ -204,6 +275,7 @@ func runBlock(
 	c sandboxClient,
 	input bashInput,
 	allowedPaths []client.AllowedPath,
+	sandboxEnv map[string]string,
 ) (*gosdkmcp.CallToolResult, error) {
 	resp, err := c.RunBlock(ctx, client.RunBlockRequest{
 		Block:        input.Command,
@@ -211,6 +283,7 @@ func runBlock(
 		StopOnError:  input.StopOnError,
 		Timeout:      input.Timeout,
 		AllowedPaths: allowedPaths,
+		Env:          sandboxEnv,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("bash: sandbox block execution failed: %w", err)
