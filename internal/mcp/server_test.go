@@ -323,14 +323,25 @@ func TestParseTemenosPaths_ReadOnlyModifier(t *testing.T) {
 }
 
 func TestParseTemenosPaths_MultiplePaths(t *testing.T) {
-	paths := parseTemenosPaths("/data:rw:/config:ro:/logs")
+	paths := parseTemenosPaths("/home/.ttal:rw,/home/.task:rw,/home/.config/ttal:ro")
+	require.Len(t, paths, 3)
+	assert.Equal(t, "/home/.ttal", paths[0].Path)
+	assert.False(t, paths[0].ReadOnly)
+	assert.Equal(t, "/home/.task", paths[1].Path)
+	assert.False(t, paths[1].ReadOnly)
+	assert.Equal(t, "/home/.config/ttal", paths[2].Path)
+	assert.True(t, paths[2].ReadOnly)
+}
+
+func TestParseTemenosPaths_DefaultReadOnly(t *testing.T) {
+	paths := parseTemenosPaths("/data:rw,/config:ro,/logs")
 	require.Len(t, paths, 3)
 	assert.Equal(t, "/data", paths[0].Path)
 	assert.False(t, paths[0].ReadOnly)
 	assert.Equal(t, "/config", paths[1].Path)
 	assert.True(t, paths[1].ReadOnly)
 	assert.Equal(t, "/logs", paths[2].Path)
-	assert.True(t, paths[2].ReadOnly)
+	assert.True(t, paths[2].ReadOnly, "no suffix should default to read-only")
 }
 
 func TestResolveAllowedPaths_IncludesTemenosPaths(t *testing.T) {

@@ -124,32 +124,30 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	return paths, nil
 }
 
-// parseTemenosPaths parses a colon-separated list of paths with optional access mode suffix.
+// parseTemenosPaths parses a comma-separated list of paths with optional :ro/:rw suffix.
 // Format: path[:ro|:rw] — default is read-only. Example:
 //
-//	/data/shared:rw:/config:ro:/logs
+//	/home/.ttal:rw,/home/.task:rw,/home/.config/ttal:ro
 func parseTemenosPaths(raw string) []client.AllowedPath {
 	if raw == "" {
 		return nil
 	}
 	var paths []client.AllowedPath
-	segments := strings.Split(raw, ":")
-	for i := 0; i < len(segments); i++ {
-		seg := strings.TrimSpace(segments[i])
-		if seg == "" {
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
 			continue
 		}
 		readOnly := true
-		if i+1 < len(segments) {
-			switch strings.TrimSpace(segments[i+1]) {
-			case "rw":
-				readOnly = false
-				i++ // consume modifier
-			case "ro":
-				i++ // consume modifier
-			}
+		if strings.HasSuffix(entry, ":rw") {
+			readOnly = false
+			entry = strings.TrimSuffix(entry, ":rw")
+		} else if strings.HasSuffix(entry, ":ro") {
+			entry = strings.TrimSuffix(entry, ":ro")
 		}
-		paths = append(paths, client.AllowedPath{Path: seg, ReadOnly: readOnly})
+		if entry != "" {
+			paths = append(paths, client.AllowedPath{Path: entry, ReadOnly: readOnly})
+		}
 	}
 	return paths
 }
