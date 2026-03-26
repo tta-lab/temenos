@@ -153,10 +153,16 @@ func parseTemenosPaths(raw string) []client.AllowedPath {
 }
 
 // collectSandboxEnv forwards all env vars from the MCP server process into the sandbox.
+//
+// This is MCP-specific: the MCP server is a long-lived intermediary that receives tool
+// calls and proxies them to the daemon. It needs to forward its own process env (set by
+// ttal-cli) because the daemon's Env field is opt-in — direct API callers set Env
+// explicitly in their RunRequest, so they don't need automatic collection.
+//
 // The sandbox already constructs a clean base env (PATH, HOME, TERM) — these vars are
-// appended and cannot override the base. The MCP server's env is curated by its parent
-// (ttal-cli), so everything present is intentionally set. The sandbox's security boundary
-// is filesystem access, not env filtering.
+// appended. The MCP server's env is curated by its parent (ttal-cli), so everything
+// present is intentionally set. The sandbox's security boundary is filesystem access,
+// not env filtering.
 func collectSandboxEnv() map[string]string {
 	env := make(map[string]string)
 	for _, kv := range os.Environ() {
