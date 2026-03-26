@@ -391,6 +391,91 @@ func TestBashHandler_EnvForwardedToRun(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAppendAncestorPaths_AddsAncestors(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil/Code/project", ReadOnly: false},
+	}
+	result := appendAncestorPaths(paths)
+
+	byPath := make(map[string]client.AllowedPath)
+	for _, p := range result {
+		byPath[p.Path] = p
+	}
+	for _, ancestor := range []string{"/Users/neil/Code", "/Users/neil", "/Users"} {
+		p, ok := byPath[ancestor]
+		assert.True(t, ok, "ancestor %s should be present", ancestor)
+		assert.True(t, p.ReadOnly, "ancestor %s should be read-only", ancestor)
+	}
+}
+
+func TestAppendAncestorPaths_NoDuplicates(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil/Code/project-a", ReadOnly: false},
+		{Path: "/Users/neil/Code/project-b", ReadOnly: true},
+	}
+	result := appendAncestorPaths(paths)
+
+	counts := make(map[string]int)
+	for _, p := range result {
+		counts[p.Path]++
+	}
+	// 2 originals + 3 ancestors (/Users/neil/Code, /Users/neil, /Users)
+	assert.Equal(t, 5, len(result), "expected 2 originals + 3 shared ancestors")
+	for path, count := range counts {
+		assert.Equal(t, 1, count, "path %s should appear exactly once", path)
+	}
+}
+
+func TestAppendAncestorPaths_DoesNotDuplicateExisting(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil/Code", ReadOnly: false},
+		{Path: "/Users/neil/Code/project", ReadOnly: true},
+	}
+	result := appendAncestorPaths(paths)
+
+	counts := make(map[string]int)
+	for _, p := range result {
+		counts[p.Path]++
+	}
+	assert.Equal(t, 1, counts["/Users/neil/Code"], "already-existing path should not be duplicated")
+	// Original read-write entry should be preserved (not overwritten by read-only ancestor).
+	for _, p := range result {
+		if p.Path == "/Users/neil/Code" {
+			assert.False(t, p.ReadOnly, "original rw entry should be preserved")
+			break
+		}
+	}
+}
+
+func TestAppendAncestorPaths_SingleComponentPath(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/tmp", ReadOnly: true},
+	}
+	result := appendAncestorPaths(paths)
+	// /tmp's only parent is /, which is excluded — no ancestors added.
+	assert.Len(t, result, 1)
+}
+
+func TestAppendAncestorPaths_ExcludesRoot(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil", ReadOnly: false},
+	}
+	result := appendAncestorPaths(paths)
+	for _, p := range result {
+		assert.NotEqual(t, "/", p.Path, "root should not be added as ancestor")
+	}
+}
+
+func TestAppendAncestorPaths_NilInput(t *testing.T) {
+	result := appendAncestorPaths(nil)
+	assert.Nil(t, result)
+}
+
+func TestAppendAncestorPaths_EmptySlice(t *testing.T) {
+	result := appendAncestorPaths([]client.AllowedPath{})
+	assert.Empty(t, result)
+}
+
 func TestBashHandler_EnvForwardedToRunBlock(t *testing.T) {
 	env := map[string]string{"TTAL_AGENT_NAME": "worker"}
 	stub := &stubClient{

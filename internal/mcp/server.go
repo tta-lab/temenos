@@ -121,6 +121,12 @@ func resolveAllowedPaths() ([]client.AllowedPath, error) {
 		paths = append(paths, client.AllowedPath{Path: ttalSocketPath, ReadOnly: false})
 	}
 
+	// Add ancestor directories of all allowed paths as read-only entries.
+	// Tools like git rev-parse --path-format=absolute stat every path component
+	// up the tree, so /Users, /Users/neil, etc. must be accessible even if only
+	// a leaf like /Users/neil/Code/project is explicitly allowed.
+	paths = appendAncestorPaths(paths)
+
 	return paths, nil
 }
 
@@ -153,6 +159,31 @@ func parseTemenosPaths(raw string) []client.AllowedPath {
 		}
 	}
 	return paths
+}
+
+// appendAncestorPaths adds read-only entries for every ancestor directory of the
+// existing allowed paths. This lets sandboxed processes stat parent directories
+// (needed by e.g. git rev-parse --path-format=absolute) without granting write
+// access to their contents. Root (/) is excluded because the base sandbox policy
+// already covers it. Paths already present in the list are not duplicated.
+func appendAncestorPaths(paths []client.AllowedPath) []client.AllowedPath {
+	existing := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		existing[p.Path] = true
+	}
+
+	var ancestors []client.AllowedPath
+	for _, p := range paths {
+		dir := filepath.Dir(p.Path)
+		for dir != "/" && dir != "." {
+			if !existing[dir] {
+				existing[dir] = true
+				ancestors = append(ancestors, client.AllowedPath{Path: dir, ReadOnly: true})
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
+	return append(paths, ancestors...)
 }
 
 // collectSandboxEnv forwards all env vars from the MCP server process into the sandbox.
