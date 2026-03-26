@@ -349,45 +349,22 @@ func TestResolveAllowedPaths_IncludesTemenosPaths(t *testing.T) {
 	assert.True(t, found, "TEMENOS_PATHS entry should be in allowed paths")
 }
 
-func TestCollectSandboxEnv_ForwardsTTAL(t *testing.T) {
+func TestCollectSandboxEnv_ForwardsAllEnv(t *testing.T) {
 	t.Setenv("TTAL_JOB_ID", "abc123")
-	t.Setenv("TTAL_AGENT_NAME", "worker")
 	t.Setenv("TASKRC", "/path/to/taskrc")
-	t.Setenv("FORGEJO_URL", "https://forgejo.example.com")
-	t.Setenv("UNRELATED_VAR", "should-not-appear")
+	t.Setenv("CUSTOM_VAR", "custom-value")
 
 	env := collectSandboxEnv()
 	assert.Equal(t, "abc123", env["TTAL_JOB_ID"])
-	assert.Equal(t, "worker", env["TTAL_AGENT_NAME"])
 	assert.Equal(t, "/path/to/taskrc", env["TASKRC"])
-	assert.Equal(t, "https://forgejo.example.com", env["FORGEJO_URL"])
-	assert.NotContains(t, env, "UNRELATED_VAR")
+	assert.Equal(t, "custom-value", env["CUSTOM_VAR"])
 }
 
-func TestCollectSandboxEnv_EmptyWhenNoVars(t *testing.T) {
-	// Clear all forwarded vars.
-	t.Setenv("TTAL_JOB_ID", "")
-	t.Setenv("TTAL_AGENT_NAME", "")
-	t.Setenv("TASKRC", "")
-	t.Setenv("FORGEJO_URL", "")
-
+func TestCollectSandboxEnv_IncludesAllProcessEnv(t *testing.T) {
 	env := collectSandboxEnv()
-	// Empty strings are still collected (env var is set, just empty).
-	// The important thing is no extra vars leak in.
-	for k := range env {
-		matched := false
-		for _, prefix := range forwardedEnvPrefixes {
-			if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-				matched = true
-			}
-		}
-		for _, name := range forwardedEnvKeys {
-			if k == name {
-				matched = true
-			}
-		}
-		assert.True(t, matched, "unexpected key in sandbox env: %s", k)
-	}
+	// Should contain at least PATH and HOME from the process.
+	assert.NotEmpty(t, env["PATH"])
+	assert.NotEmpty(t, env["HOME"])
 }
 
 func TestBashHandler_EnvForwardedToRun(t *testing.T) {

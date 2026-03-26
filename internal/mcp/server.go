@@ -92,12 +92,6 @@ func Serve(version string) error {
 	return nil
 }
 
-// forwardedEnvPrefixes lists env var prefixes to forward into the sandbox.
-var forwardedEnvPrefixes = []string{"TTAL_"}
-
-// forwardedEnvKeys lists specific env var names to forward into the sandbox.
-var forwardedEnvKeys = []string{"TASKRC", "FORGEJO_URL"}
-
 // resolveAllowedPaths builds the sandbox allowed paths from env config:
 //   - cwd: the working directory (read-write if TEMENOS_WRITE=true, else read-only)
 //   - TEMENOS_PATHS: colon-separated list of additional paths (format: path or path:ro or path:rw)
@@ -160,8 +154,11 @@ func parseTemenosPaths(raw string) []client.AllowedPath {
 	return paths
 }
 
-// collectSandboxEnv gathers env vars that should be forwarded into the sandbox.
-// This includes TTAL_* vars and specific keys like TASKRC and FORGEJO_URL.
+// collectSandboxEnv forwards all env vars from the MCP server process into the sandbox.
+// The sandbox already constructs a clean base env (PATH, HOME, TERM) — these vars are
+// appended and cannot override the base. The MCP server's env is curated by its parent
+// (ttal-cli), so everything present is intentionally set. The sandbox's security boundary
+// is filesystem access, not env filtering.
 func collectSandboxEnv() map[string]string {
 	env := make(map[string]string)
 	for _, kv := range os.Environ() {
@@ -169,18 +166,7 @@ func collectSandboxEnv() map[string]string {
 		if !ok {
 			continue
 		}
-		for _, prefix := range forwardedEnvPrefixes {
-			if strings.HasPrefix(key, prefix) {
-				env[key] = val
-				break
-			}
-		}
-		for _, name := range forwardedEnvKeys {
-			if key == name {
-				env[key] = val
-				break
-			}
-		}
+		env[key] = val
 	}
 	return env
 }
