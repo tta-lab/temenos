@@ -391,6 +391,64 @@ func TestBashHandler_EnvForwardedToRun(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAppendAncestorPaths_AddsAncestors(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil/Code/project", ReadOnly: false},
+	}
+	result := appendAncestorPaths(paths)
+
+	ancestorSet := make(map[string]bool)
+	for _, p := range result[1:] { // skip the original
+		ancestorSet[p.Path] = true
+		assert.True(t, p.ReadOnly, "ancestor %s should be read-only", p.Path)
+	}
+	assert.True(t, ancestorSet["/Users/neil/Code"])
+	assert.True(t, ancestorSet["/Users/neil"])
+	assert.True(t, ancestorSet["/Users"])
+}
+
+func TestAppendAncestorPaths_NoDuplicates(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil/Code/project-a", ReadOnly: false},
+		{Path: "/Users/neil/Code/project-b", ReadOnly: true},
+	}
+	result := appendAncestorPaths(paths)
+
+	counts := make(map[string]int)
+	for _, p := range result {
+		counts[p.Path]++
+	}
+	for path, count := range counts {
+		assert.Equal(t, 1, count, "path %s should appear exactly once", path)
+	}
+}
+
+func TestAppendAncestorPaths_DoesNotDuplicateExisting(t *testing.T) {
+	paths := []client.AllowedPath{
+		{Path: "/Users/neil/Code", ReadOnly: false},
+		{Path: "/Users/neil/Code/project", ReadOnly: true},
+	}
+	result := appendAncestorPaths(paths)
+
+	counts := make(map[string]int)
+	for _, p := range result {
+		counts[p.Path]++
+	}
+	assert.Equal(t, 1, counts["/Users/neil/Code"], "already-existing path should not be duplicated")
+	// Original read-write entry should be preserved (not overwritten by read-only ancestor).
+	for _, p := range result {
+		if p.Path == "/Users/neil/Code" {
+			assert.False(t, p.ReadOnly, "original rw entry should be preserved")
+			break
+		}
+	}
+}
+
+func TestAppendAncestorPaths_Empty(t *testing.T) {
+	result := appendAncestorPaths(nil)
+	assert.Nil(t, result)
+}
+
 func TestBashHandler_EnvForwardedToRunBlock(t *testing.T) {
 	env := map[string]string{"TTAL_AGENT_NAME": "worker"}
 	stub := &stubClient{
