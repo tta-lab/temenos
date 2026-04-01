@@ -5,6 +5,8 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"github.com/tta-lab/temenos/sandbox"
+
 	"github.com/BurntSushi/toml"
 )
 
@@ -113,4 +115,19 @@ func expandSlice(paths []string) []string {
 		}
 	}
 	return result
+}
+
+// BaselineMounts converts the config's AllowRead and AllowWrite paths
+// into sandbox.Mount entries. AllowRead paths become read-only mounts;
+// AllowWrite paths become read-write mounts. Returns an empty slice if
+// no paths are configured.
+func (c *Config) BaselineMounts() []sandbox.Mount {
+	mounts := make([]sandbox.Mount, 0, len(c.AllowRead)+len(c.AllowWrite))
+	for _, p := range c.AllowRead {
+		mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: true})
+	}
+	for _, p := range c.AllowWrite {
+		mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: false})
+	}
+	return mounts
 }

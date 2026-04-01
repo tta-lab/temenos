@@ -86,7 +86,6 @@ func registerSession(t *testing.T, store *session.Store, agent, access string) s
 	return s.Token
 }
 
-
 func TestHandleHTTPSessionDelete_KnownToken(t *testing.T) {
 	store := makeSessionStore(t)
 	h := handleHTTPSessionDelete(store)

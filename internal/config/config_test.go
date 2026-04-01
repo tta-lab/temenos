@@ -152,3 +152,24 @@ func TestDefaultConfigPath_WithoutEnvVar(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, expectedPath, path)
 }
+
+func TestBaselineMounts(t *testing.T) {
+	cfg := &Config{
+		AllowRead:  []string{"/read/path1", "/read/path2"},
+		AllowWrite: []string{"/write/path1"},
+	}
+	mounts := cfg.BaselineMounts()
+	require.Len(t, mounts, 3)
+	assert.Equal(t, "/read/path1", mounts[0].Source)
+	assert.True(t, mounts[0].ReadOnly)
+	assert.Equal(t, "/read/path2", mounts[1].Source)
+	assert.True(t, mounts[1].ReadOnly)
+	assert.Equal(t, "/write/path1", mounts[2].Source)
+	assert.False(t, mounts[2].ReadOnly)
+}
+
+func TestBaselineMounts_Empty(t *testing.T) {
+	cfg := &Config{}
+	mounts := cfg.BaselineMounts()
+	assert.Empty(t, mounts)
+}
