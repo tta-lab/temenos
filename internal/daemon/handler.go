@@ -186,7 +186,9 @@ func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req
 	}, nil
 }
 
-func handleRunBlock(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunBlockRequest) (*RunBlockResponse, error) {
+func handleRunBlock(
+	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunBlockRequest,
+) (*RunBlockResponse, error) {
 	if req.Block == "" {
 		return nil, fmt.Errorf("%w: block must not be empty", errHTTPValidation)
 	}
@@ -301,7 +303,9 @@ type SessionRegisterResponse struct {
 	Token string `json:"token"`
 }
 
-func handleSessionRegister(ctx context.Context, store *session.Store, req session.RegisterRequest) (*SessionRegisterResponse, error) {
+func handleSessionRegister(
+	ctx context.Context, store *session.Store, req session.RegisterRequest,
+) (*SessionRegisterResponse, error) {
 	s, err := store.Register(req)
 	if err != nil {
 		return nil, err

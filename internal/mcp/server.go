@@ -106,7 +106,7 @@ func truncateToken(token string) string {
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 // registerBashTool registers the bash tool handler with the MCP server.
@@ -213,7 +213,7 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 }
 
 // hasValidPrefix checks if the block contains at least one line with the given prefix.
-func hasValidPrefix(block, prefix string) bool {
+func hasValidPrefix(block string, prefix string) bool { //nolint:unparam
 	for _, line := range strings.Split(block, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, prefix) {
