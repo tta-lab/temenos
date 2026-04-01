@@ -289,3 +289,44 @@ func TestNewMCPHandler_ReturnsHandler(t *testing.T) {
 	handler := NewMCPHandler(cfg, store, sbx)
 	assert.NotNil(t, handler)
 }
+
+// TestBuildExecConfig_ReadOnlySession_NoWriteMounts verifies that an "ro" session
+// does not gain write access to its WritePaths. This is a regression test for the
+// security fix that gates WritePaths mounts on sess.Access == "rw".
+func TestBuildExecConfig_ReadOnlySession_NoWriteMounts(t *testing.T) {
+	cfg := &config.Config{
+		AllowWrite: []string{"/config-write"},
+	}
+	roSess := &session.Session{
+		Access:     "ro",
+		WritePaths: []string{"/session-write"},
+	}
+
+	execCfg := buildExecConfig(cfg, roSess)
+
+	for _, m := range execCfg.MountDirs {
+		assert.NotEqual(t, "/session-write", m.Source,
+			"ro session must not gain access to WritePaths")
+	}
+}
+
+// TestBuildExecConfig_ReadWriteSession_HasWriteMounts verifies that an "rw" session
+// does have its WritePaths included as writable mounts.
+func TestBuildExecConfig_ReadWriteSession_HasWriteMounts(t *testing.T) {
+	cfg := &config.Config{}
+	rwSess := &session.Session{
+		Access:     "rw",
+		WritePaths: []string{"/session-write"},
+	}
+
+	execCfg := buildExecConfig(cfg, rwSess)
+
+	var found bool
+	for _, m := range execCfg.MountDirs {
+		if m.Source == "/session-write" {
+			found = true
+			assert.False(t, m.ReadOnly, "rw session WritePath must be a writable mount")
+		}
+	}
+	assert.True(t, found, "rw session WritePath must appear in mounts")
+}

@@ -208,7 +208,13 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 			}
 		}
 
-		resultJSON, _ := json.Marshal(results)
+		resultJSON, err := json.Marshal(results)
+		if err != nil {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: "internal error: failed to serialize results"}},
+			}, struct{}{}, nil
+		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(resultJSON)}},
 		}, struct{}{}, nil

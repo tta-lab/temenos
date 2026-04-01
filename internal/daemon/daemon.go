@@ -91,7 +91,7 @@ func Run(version string) error {
 	// Load config for baseline mounts.
 	cfg, err := config.Load("")
 	if err != nil {
-		slog.Warn("failed to load config", "err", err)
+		slog.Error("failed to load config — no baseline mounts will be applied", "err", err)
 		cfg = &config.Config{MCPPort: 9783}
 	}
 
