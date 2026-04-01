@@ -137,6 +137,27 @@ func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, 
 	mcp.AddTool(srv, bashTool, bashHandler(cfg, sbx, sess))
 }
 
+// buildExecConfig constructs the sandbox ExecConfig for a bash tool invocation.
+// Baseline mounts from config are prepended; rw-session WritePaths are appended
+// as writable mounts; ancestor MetadataOnly mounts are injected for stat access.
+func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecConfig {
+	mounts := cfg.BaselineMounts()
+	if sess != nil && sess.Access == "rw" {
+		for _, p := range sess.WritePaths {
+			mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: false})
+		}
+	}
+	mounts = sandbox.AddAncestorMounts(mounts)
+
+	workDir := ""
+	if sess != nil && sess.Access == "rw" && len(sess.WritePaths) > 0 {
+		workDir = sess.WritePaths[0]
+	} else if len(cfg.AllowWrite) > 0 {
+		workDir = cfg.AllowWrite[0]
+	}
+	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir}
+}
+
 // bashHandler returns the tool handler for the bash tool.
 func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session) mcp.ToolHandlerFor[bashInput, any] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input bashInput) (*mcp.CallToolResult, any, error) {
@@ -147,27 +168,8 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 				Content: []mcp.Content{&mcp.TextContent{Text: "command must use § prefix lines"}},
 			}, struct{}{}, nil
 		}
-		// Build mounts: config baseline (ro/rw from config) + session write paths.
-		// WritePaths are only appended as writable mounts for "rw" sessions.
-		mounts := cfg.BaselineMounts()
-		if sess != nil && sess.Access == "rw" {
-			for _, p := range sess.WritePaths {
-				mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: false})
-			}
-		}
 
-		// Determine working directory: first session write path (rw only), else first config write path.
-		workDir := ""
-		if sess != nil && sess.Access == "rw" && len(sess.WritePaths) > 0 {
-			workDir = sess.WritePaths[0]
-		} else if len(cfg.AllowWrite) > 0 {
-			workDir = cfg.AllowWrite[0]
-		}
-
-		execCfg := &sandbox.ExecConfig{
-			MountDirs:  mounts,
-			WorkingDir: workDir,
-		}
+		execCfg := buildExecConfig(cfg, sess)
 
 		// Parse commands
 		cmds := parse.ParseBlock(input.Command, "§")

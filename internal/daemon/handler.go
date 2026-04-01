@@ -111,31 +111,7 @@ func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount
 		})
 	}
 
-	// Compute ancestor metadata mounts for all non-MetadataOnly entries.
-	// Deduplicate by path — skip ancestors already present at any permission level.
-	existing := make(map[string]bool, len(mounts))
-	for _, m := range mounts {
-		existing[m.Source] = true
-	}
-	for _, m := range mounts {
-		if m.MetadataOnly {
-			continue
-		}
-		dir := filepath.Dir(m.Source)
-		for dir != "/" && dir != "." {
-			if !existing[dir] {
-				existing[dir] = true
-				mounts = append(mounts, sandbox.Mount{
-					Source:       dir,
-					Target:       dir,
-					MetadataOnly: true,
-				})
-			}
-			dir = filepath.Dir(dir)
-		}
-	}
-
-	return mounts, nil
+	return sandbox.AddAncestorMounts(mounts), nil
 }
 
 // buildEnvSlice converts a map of env vars to a KEY=VALUE slice.
@@ -303,9 +279,7 @@ type SessionRegisterResponse struct {
 	Token string `json:"token"`
 }
 
-func handleSessionRegister(
-	ctx context.Context, store *session.Store, req session.RegisterRequest,
-) (*SessionRegisterResponse, error) {
+func handleSessionRegister(store *session.Store, req session.RegisterRequest) (*SessionRegisterResponse, error) {
 	s, err := store.Register(req)
 	if err != nil {
 		return nil, err
@@ -339,7 +313,7 @@ func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "access must be \"rw\" or \"ro\""})
 			return
 		}
-		resp, err := handleSessionRegister(r.Context(), store, req)
+		resp, err := handleSessionRegister(store, req)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

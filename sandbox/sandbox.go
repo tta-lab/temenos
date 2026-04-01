@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"cmp"
@@ -41,6 +42,31 @@ type Mount struct {
 	// Bwrap skips MetadataOnly mounts entirely — bwrap namespace isolation provides
 	// implicit parent-directory visibility for bind-mounted paths.
 	MetadataOnly bool
+}
+
+// AddAncestorMounts appends MetadataOnly mounts for each ancestor directory of
+// all non-MetadataOnly mounts. This lets sandboxed processes stat parent directories
+// (e.g. git rev-parse walks up the tree) without granting broader access.
+// Ancestors already present in the mount list at any permission level are skipped.
+// The root directory (/) is never added.
+func AddAncestorMounts(mounts []Mount) []Mount {
+	existing := make(map[string]bool, len(mounts))
+	for _, m := range mounts {
+		existing[m.Source] = true
+	}
+	for _, m := range mounts {
+		if m.MetadataOnly {
+			continue
+		}
+		for dir := filepath.Dir(m.Source); dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+			if existing[dir] {
+				break
+			}
+			existing[dir] = true
+			mounts = append(mounts, Mount{Source: dir, Target: dir, MetadataOnly: true})
+		}
+	}
+	return mounts
 }
 
 // runCmd executes a prepared command and returns output, exit code, and errors.

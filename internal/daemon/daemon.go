@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -126,6 +127,15 @@ func Run(version string) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
+	return waitAndShutdown(sig, serveErr, mcpServeErr, srv, mcpSrv)
+}
+
+// waitAndShutdown blocks until a signal or server error, then shuts down both servers.
+func waitAndShutdown(
+	sig <-chan os.Signal,
+	serveErr, mcpServeErr <-chan error,
+	srv, mcpSrv *http.Server,
+) error {
 	select {
 	case <-sig:
 		slog.Info("temenos daemon shutting down")
