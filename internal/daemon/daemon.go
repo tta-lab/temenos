@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tta-lab/temenos/internal/config"
+	temenosmcp "github.com/tta-lab/temenos/internal/mcp"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -108,7 +109,19 @@ func Run(version string) error {
 		return err
 	}
 
-	slog.Info("temenos daemon started", "listen", resolvedAddr, "network", network)
+	// Create MCP handler and start TCP listener on localhost.
+	mcpHandler := temenosmcp.NewMCPHandler(cfg, store, sbx)
+	mcpAddr := fmt.Sprintf("127.0.0.1:%d", cfg.MCPPort)
+	mcpSrv, mcpServeErr, err := listenTCP(mcpAddr, mcpHandler)
+	if err != nil {
+		return err
+	}
+
+	slog.Info("temenos daemon started",
+		"admin", resolvedAddr,
+		"admin_network", network,
+		"mcp", mcpAddr,
+	)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -118,11 +131,16 @@ func Run(version string) error {
 		slog.Info("temenos daemon shutting down")
 	case err := <-serveErr:
 		if err != nil {
-			return fmt.Errorf("temenos: HTTP server failed: %w", err)
+			return fmt.Errorf("temenos: admin server failed: %w", err)
+		}
+	case err := <-mcpServeErr:
+		if err != nil {
+			return fmt.Errorf("temenos: MCP server failed: %w", err)
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	return srv.Shutdown(ctx)
+	_ = srv.Shutdown(ctx)
+	return mcpSrv.Shutdown(ctx)
 }

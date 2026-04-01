@@ -106,6 +106,34 @@ func listenHTTP(addr string, h httpHandlers) (*http.Server, <-chan error, error)
 	return srv, serveErr, nil
 }
 
+// listenTCP starts an HTTP server on a TCP address.
+// Unlike listenHTTP, this function does not handle unix sockets and
+// does not apply special permissions (e.g. chmod 0o600).
+//
+// Security: Always bind to localhost (127.0.0.1) or a loopback interface.
+// Do not bind to 0.0.0.0 without network-level access control.
+func listenTCP(addr string, handler http.Handler) (*http.Server, <-chan error, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	srv := &http.Server{
+		Handler:      handler,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+		}
+		close(serveErr)
+	}()
+	return srv, serveErr, nil
+}
+
 // parseListenAddr determines network type from address format.
 // Paths (starting with / or .) → unix socket. Everything else → TCP.
 func parseListenAddr(addr string) (network, listenAddr string) {
