@@ -36,6 +36,11 @@ type Mount struct {
 	Source   string
 	Target   string
 	ReadOnly bool
+	// MetadataOnly indicates the mount should only grant file-read-metadata access.
+	// Seatbelt emits (allow file-read-metadata (literal ...)) for these mounts.
+	// Bwrap skips MetadataOnly mounts entirely — bwrap namespace isolation provides
+	// implicit parent-directory visibility for bind-mounted paths.
+	MetadataOnly bool
 }
 
 // runCmd executes a prepared command and returns output, exit code, and errors.

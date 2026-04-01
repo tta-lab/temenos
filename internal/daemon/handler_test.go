@@ -41,3 +41,82 @@ func TestHandleRun_NoAllowedPaths_EmptyWorkingDir(t *testing.T) {
 	require.NotNil(t, sbx.lastCfg)
 	assert.Empty(t, sbx.lastCfg.WorkingDir)
 }
+
+func TestBuildMounts_MetadataOnlyPassedThrough(t *testing.T) {
+	paths := []AllowedPath{
+		{Path: "/some/path", ReadOnly: true, MetadataOnly: true},
+	}
+	mounts, err := buildMounts(paths)
+	require.NoError(t, err)
+	// The MetadataOnly mount is returned, but no ancestors are added for it.
+	require.Len(t, mounts, 1)
+	assert.True(t, mounts[0].MetadataOnly)
+	assert.Equal(t, "/some/path", mounts[0].Source)
+}
+
+func TestBuildMounts_AncestorMetadataInjected(t *testing.T) {
+	paths := []AllowedPath{
+		{Path: "/Users/neil/Code/project", ReadOnly: true},
+	}
+	mounts, err := buildMounts(paths)
+	require.NoError(t, err)
+
+	// Collect by path for easy lookup.
+	byPath := make(map[string]sandbox.Mount)
+	for _, m := range mounts {
+		byPath[m.Source] = m
+	}
+
+	// The explicit mount should be first (WorkingDir preservation).
+	assert.Equal(t, "/Users/neil/Code/project", mounts[0].Source)
+	assert.False(t, mounts[0].MetadataOnly)
+
+	// Ancestors are injected as MetadataOnly.
+	for _, anc := range []string{"/Users/neil/Code", "/Users/neil", "/Users"} {
+		m, ok := byPath[anc]
+		assert.True(t, ok, "ancestor %s should be present", anc)
+		assert.True(t, m.MetadataOnly, "ancestor %s should be MetadataOnly", anc)
+	}
+
+	// Root should NOT be added.
+	_, rootPresent := byPath["/"]
+	assert.False(t, rootPresent, "root should not be added as ancestor")
+}
+
+func TestBuildMounts_AncestorDeduplicatesExistingMounts(t *testing.T) {
+	paths := []AllowedPath{
+		{Path: "/Users/neil/Code/project", ReadOnly: true},
+		{Path: "/Users/neil", ReadOnly: false}, // already present — should not be duplicated
+	}
+	mounts, err := buildMounts(paths)
+	require.NoError(t, err)
+
+	counts := make(map[string]int)
+	for _, m := range mounts {
+		counts[m.Source]++
+	}
+
+	assert.Equal(t, 1, counts["/Users/neil"], "/Users/neil should appear exactly once")
+	// The explicit rw entry should be preserved (not replaced by MetadataOnly).
+	for _, m := range mounts {
+		if m.Source == "/Users/neil" {
+			assert.False(t, m.MetadataOnly, "explicit rw mount should not become MetadataOnly")
+			break
+		}
+	}
+}
+
+func TestBuildMounts_WorkingDirPreservedWithAncestors(t *testing.T) {
+	sbx := &captureSandbox{}
+	req := RunRequest{
+		Command: "pwd",
+		AllowedPaths: []AllowedPath{
+			{Path: "/Users/neil/Code/project", ReadOnly: true},
+		},
+	}
+	_, err := handleRun(t.Context(), sbx, req)
+	require.NoError(t, err)
+	require.NotNil(t, sbx.lastCfg)
+	// WorkingDir must still be the explicit mount, not an ancestor.
+	assert.Equal(t, "/Users/neil/Code/project", sbx.lastCfg.WorkingDir)
+}

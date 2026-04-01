@@ -104,3 +104,69 @@ func TestBuildPolicy_SourceTargetMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "/source")
 	assert.Contains(t, err.Error(), "/target")
 }
+
+func TestBuildPolicy_MetadataOnlyMount(t *testing.T) {
+	cfg := &ExecConfig{
+		MountDirs: []Mount{
+			{Source: "/some/ancestor", Target: "/some/ancestor", MetadataOnly: true},
+		},
+	}
+	policy, params, err := buildPolicy(cfg)
+	require.NoError(t, err)
+
+	// Should emit file-read-metadata literal for the MetadataOnly mount.
+	assert.Contains(t, policy, `(allow file-read-metadata (literal (param "METADATA_ROOT_0")))`)
+	// The MetadataOnly mount must NOT get a READABLE_ROOT or WRITABLE_ROOT param.
+	for _, p := range params {
+		assert.False(t,
+			strings.Contains(p, "READABLE_ROOT") && strings.HasSuffix(p, "=/some/ancestor"),
+			"MetadataOnly mount should not emit READABLE_ROOT param, got: %s", p)
+		assert.False(t,
+			strings.Contains(p, "WRITABLE_ROOT") && strings.HasSuffix(p, "=/some/ancestor"),
+			"MetadataOnly mount should not emit WRITABLE_ROOT param, got: %s", p)
+	}
+	assert.Contains(t, params, "METADATA_ROOT_0=/some/ancestor")
+}
+
+func TestBuildPolicy_MetadataOnly_SourceTargetMismatchSkipped(t *testing.T) {
+	// MetadataOnly mounts skip the Source \!= Target check.
+	cfg := &ExecConfig{
+		MountDirs: []Mount{
+			{Source: "/ancestor", Target: "/different", MetadataOnly: true},
+		},
+	}
+	_, _, err := buildPolicy(cfg)
+	require.NoError(t, err, "MetadataOnly mounts should not trigger source/target mismatch error")
+}
+
+func TestBuildPolicy_MixedMounts(t *testing.T) {
+	cfg := &ExecConfig{
+		MountDirs: []Mount{
+			{Source: "/rw/path", Target: "/rw/path", ReadOnly: false},
+			{Source: "/ancestor", Target: "/ancestor", MetadataOnly: true},
+			{Source: "/ro/path", Target: "/ro/path", ReadOnly: true},
+		},
+	}
+	policy, params, err := buildPolicy(cfg)
+	require.NoError(t, err)
+
+	// Verify all three rule types are present.
+	hasWritable := false
+	hasReadable := false
+	hasMetadata := false
+	for _, p := range params {
+		switch {
+		case strings.HasSuffix(p, "=/rw/path") && strings.HasPrefix(p, "WRITABLE_ROOT_"):
+			hasWritable = true
+		case strings.HasSuffix(p, "=/ro/path") && strings.HasPrefix(p, "READABLE_ROOT_"):
+			hasReadable = true
+		case strings.HasSuffix(p, "=/ancestor") && strings.HasPrefix(p, "METADATA_ROOT_"):
+			hasMetadata = true
+		}
+	}
+	assert.True(t, hasWritable, "expected WRITABLE_ROOT param for /rw/path")
+	assert.True(t, hasReadable, "expected READABLE_ROOT param for /ro/path")
+	assert.True(t, hasMetadata, "expected METADATA_ROOT param for /ancestor")
+
+	assert.Contains(t, policy, `file-read-metadata (literal`)
+}
