@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/tta-lab/temenos/internal/session"
 )
 
 const (
@@ -25,6 +26,7 @@ type httpHandlers struct {
 	run      func(ctx context.Context, req RunRequest) (*RunResponse, error)
 	runBlock func(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error)
 	health   func() HealthResponse
+	store    *session.Store
 }
 
 func newRouter(h httpHandlers) *chi.Mux {
@@ -33,6 +35,11 @@ func newRouter(h httpHandlers) *chi.Mux {
 	r.Post("/run", handleHTTPRunValidating(h))
 	r.Post("/run-block", handleHTTPRunBlockValidating(h))
 	r.Get("/health", handleHTTPHealth(h))
+	if h.store != nil {
+		r.Post("/session/register", handleHTTPSessionRegister(h.store))
+		r.Delete("/session/{token}", handleHTTPSessionDelete(h.store))
+		r.Get("/session/list", handleHTTPSessionList(h.store))
+	}
 	return r
 }
 

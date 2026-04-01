@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -72,6 +73,18 @@ func Run(version string) error {
 	tracker := NewProcessTracker()
 	defer tracker.KillAll()
 
+	// Set up session store with persistence.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("temenos: cannot determine home directory: %w", err)
+	}
+	sessionsPath := filepath.Join(home, ".temenos", "sessions.json")
+	store := session.NewStore(sessionsPath)
+	if err := store.LoadFromDisk(); err != nil {
+		slog.Warn("failed to load sessions from disk", "path", sessionsPath, "err", err)
+	}
+	store.PruneStale()
+
 	srv, serveErr, err := listenHTTP(addr, httpHandlers{
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
 			return handleRun(ctx, sbx, req)
@@ -80,6 +93,7 @@ func Run(version string) error {
 			return handleRunBlock(ctx, sbx, req)
 		},
 		health: func() HealthResponse { return handleHealth(version) },
+		store:  store,
 	})
 	if err != nil {
 		return err

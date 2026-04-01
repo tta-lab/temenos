@@ -10,7 +10,9 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/tta-lab/temenos/internal/parse"
+	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -287,4 +289,77 @@ func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
 // body limit, and returns HTTP 400 for validation errors, 500 for sandbox errors.
 func handleHTTPRunBlockValidating(h httpHandlers) http.HandlerFunc {
 	return handleHTTPValidating(h.runBlock)
+}
+
+// SessionRegisterResponse is the POST /session/register response.
+type SessionRegisterResponse struct {
+	Token string `json:"token"`
+}
+
+func handleSessionRegister(ctx context.Context, store *session.Store, req session.RegisterRequest) (*SessionRegisterResponse, error) {
+	s, err := store.Register(req)
+	if err != nil {
+		return nil, err
+	}
+	return &SessionRegisterResponse{Token: s.Token}, nil
+}
+
+func handleSessionDelete(store *session.Store, token string) error {
+	return store.Delete(token)
+}
+
+func handleSessionList(store *session.Store) []session.Session {
+	return store.List()
+}
+
+// handleHTTPSessionRegister handles POST /session/register.
+// Returns 400 if agent or access field is empty.
+func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var req session.RegisterRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Agent == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent must not be empty"})
+			return
+		}
+		if req.Access == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "access must not be empty"})
+			return
+		}
+		resp, err := handleSessionRegister(r.Context(), store, req)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+// handleHTTPSessionDelete handles DELETE /session/{token}.
+// Returns 404 if token not found.
+func handleHTTPSessionDelete(store *session.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := chi.URLParam(r, "token")
+		if store.Get(token) == nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		if err := handleSessionDelete(store, token); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleHTTPSessionList handles GET /session/list.
+func handleHTTPSessionList(store *session.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessions := handleSessionList(store)
+		writeJSON(w, http.StatusOK, sessions)
+	}
 }
