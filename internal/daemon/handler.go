@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/parse"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
@@ -86,14 +87,18 @@ func validatePath(p string) error {
 	return nil
 }
 
-// buildMounts converts AllowedPath slice into sandbox.Mount slice, validating each path.
-// After building explicit mounts, it appends ancestor directories of all non-MetadataOnly
+// buildMounts prepends baseline mounts, converts AllowedPath slice into sandbox.Mount
+// slice (with validation), then appends ancestor directories of all non-MetadataOnly
 // mounts as MetadataOnly mounts. This lets sandboxed processes stat parent directories
 // (e.g. git rev-parse --path-format=absolute walks up the tree) without granting broader
 // access. Ancestors are appended AFTER explicit mounts to preserve mounts[0].Source as
 // the working directory in buildExecConfig. Root (/) is excluded.
-func buildMounts(paths []AllowedPath) ([]sandbox.Mount, error) {
-	mounts := make([]sandbox.Mount, 0, len(paths))
+func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount, error) {
+	// Start with baseline mounts (from config).
+	mounts := make([]sandbox.Mount, len(baseline))
+	copy(mounts, baseline)
+
+	// Append mounts from the request's AllowedPaths.
 	for _, ap := range paths {
 		if err := validatePath(ap.Path); err != nil {
 			return nil, fmt.Errorf("%w: %w", errHTTPValidation, err)
@@ -155,14 +160,14 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount) *sandbox.ExecCon
 	return cfg
 }
 
-func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
+func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
 		defer cancel()
 	}
 
-	mounts, err := buildMounts(req.AllowedPaths)
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +186,7 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 	}, nil
 }
 
-func handleRunBlock(ctx context.Context, sbx sandbox.Sandbox, req RunBlockRequest) (*RunBlockResponse, error) {
+func handleRunBlock(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunBlockRequest) (*RunBlockResponse, error) {
 	if req.Block == "" {
 		return nil, fmt.Errorf("%w: block must not be empty", errHTTPValidation)
 	}
@@ -194,7 +199,7 @@ func handleRunBlock(ctx context.Context, sbx sandbox.Sandbox, req RunBlockReques
 		stopOnError = *req.StopOnError
 	}
 
-	mounts, err := buildMounts(req.AllowedPaths)
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
 	if err != nil {
 		return nil, err
 	}

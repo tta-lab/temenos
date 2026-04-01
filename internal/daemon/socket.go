@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
 )
 
@@ -23,6 +24,7 @@ const (
 )
 
 type httpHandlers struct {
+	cfg      *config.Config
 	run      func(ctx context.Context, req RunRequest) (*RunResponse, error)
 	runBlock func(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error)
 	health   func() HealthResponse

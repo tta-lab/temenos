@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -85,12 +86,20 @@ func Run(version string) error {
 	}
 	store.PruneStale()
 
+	// Load config for baseline mounts.
+	cfg, err := config.Load("")
+	if err != nil {
+		slog.Warn("failed to load config", "err", err)
+		cfg = &config.Config{MCPPort: 9783}
+	}
+
 	srv, serveErr, err := listenHTTP(addr, httpHandlers{
+		cfg: cfg,
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
-			return handleRun(ctx, sbx, req)
+			return handleRun(ctx, cfg, sbx, req)
 		},
 		runBlock: func(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error) {
-			return handleRunBlock(ctx, sbx, req)
+			return handleRunBlock(ctx, cfg, sbx, req)
 		},
 		health: func() HealthResponse { return handleHealth(version) },
 		store:  store,
