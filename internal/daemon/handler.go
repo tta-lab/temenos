@@ -27,9 +27,11 @@ type RunRequest struct {
 }
 
 // AllowedPath specifies a filesystem mount for the sandbox.
+// AllowedPath specifies a filesystem mount for the sandbox.
 type AllowedPath struct {
-	Path     string `json:"path"`
-	ReadOnly bool   `json:"read_only"`
+	Path         string `json:"path"`
+	ReadOnly     bool   `json:"read_only"`
+	MetadataOnly bool   `json:"metadata_only,omitempty"`
 }
 
 // RunResponse is the POST /run response.
@@ -84,6 +86,11 @@ func validatePath(p string) error {
 }
 
 // buildMounts converts AllowedPath slice into sandbox.Mount slice, validating each path.
+// After building explicit mounts, it appends ancestor directories of all non-MetadataOnly
+// mounts as MetadataOnly mounts. This lets sandboxed processes stat parent directories
+// (e.g. git rev-parse --path-format=absolute walks up the tree) without granting broader
+// access. Ancestors are appended AFTER explicit mounts to preserve mounts[0].Source as
+// the working directory in buildExecConfig. Root (/) is excluded.
 func buildMounts(paths []AllowedPath) ([]sandbox.Mount, error) {
 	mounts := make([]sandbox.Mount, 0, len(paths))
 	for _, ap := range paths {
@@ -91,11 +98,37 @@ func buildMounts(paths []AllowedPath) ([]sandbox.Mount, error) {
 			return nil, fmt.Errorf("%w: %w", errHTTPValidation, err)
 		}
 		mounts = append(mounts, sandbox.Mount{
-			Source:   filepath.Clean(ap.Path),
-			Target:   filepath.Clean(ap.Path),
-			ReadOnly: ap.ReadOnly,
+			Source:       filepath.Clean(ap.Path),
+			Target:       filepath.Clean(ap.Path),
+			ReadOnly:     ap.ReadOnly,
+			MetadataOnly: ap.MetadataOnly,
 		})
 	}
+
+	// Compute ancestor metadata mounts for all non-MetadataOnly entries.
+	// Deduplicate by path — skip ancestors already present at any permission level.
+	existing := make(map[string]bool, len(mounts))
+	for _, m := range mounts {
+		existing[m.Source] = true
+	}
+	for _, m := range mounts {
+		if m.MetadataOnly {
+			continue
+		}
+		dir := filepath.Dir(m.Source)
+		for dir != "/" && dir != "." {
+			if !existing[dir] {
+				existing[dir] = true
+				mounts = append(mounts, sandbox.Mount{
+					Source:       dir,
+					Target:       dir,
+					MetadataOnly: true,
+				})
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
+
 	return mounts, nil
 }
 

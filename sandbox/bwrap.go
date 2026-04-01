@@ -97,6 +97,11 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 
 	if cfg != nil {
 		for _, m := range cfg.MountDirs {
+			// MetadataOnly mounts are a seatbelt concept — bwrap namespace isolation
+			// provides implicit parent-directory visibility, so skip these entirely.
+			if m.MetadataOnly {
+				continue
+			}
 			if m.ReadOnly {
 				args = append(args, "--ro-bind", m.Source, m.Target)
 			} else {

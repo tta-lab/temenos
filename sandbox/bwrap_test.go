@@ -169,3 +169,29 @@ func TestAppendBwrapToolBinds_NoDuplicates(t *testing.T) {
 		}
 	}
 }
+
+func TestBwrapSandbox_BuildArgs_MetadataOnlySkipped(t *testing.T) {
+	s := &BwrapSandbox{BwrapPath: "bwrap"}
+	cfg := &ExecConfig{
+		MountDirs: []Mount{
+			{Source: "/project/code", Target: "/project/code", ReadOnly: true},
+			{Source: "/project", Target: "/project", MetadataOnly: true},
+		},
+	}
+
+	args := s.buildArgs("ls", cfg)
+
+	// /project/code should be bound read-only.
+	foundBind := false
+	for i, a := range args {
+		if a == roBind && i+2 < len(args) && args[i+1] == "/project/code" {
+			foundBind = true
+		}
+	}
+	assert.True(t, foundBind, "expected --ro-bind for /project/code")
+
+	// MetadataOnly mount /project must NOT appear in args — seatbelt concept only.
+	for _, a := range args {
+		assert.NotEqual(t, "/project", a, "MetadataOnly mount /project should not appear in bwrap args")
+	}
+}
