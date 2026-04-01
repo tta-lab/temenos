@@ -23,9 +23,18 @@ Pre-commit hooks (lefthook): fmt check, vet, lint — run in parallel.
 
 ## Architecture
 
-**Daemon** (`internal/daemon/`) — HTTP server on unix socket (`~/.ttal/temenos.sock`, override via `TEMENOS_SOCKET_PATH`). Two endpoints:
+**Daemon** (`internal/daemon/`) — Dual-listener design:
+- **Admin server** — HTTP on unix socket (`~/.temenos/daemon.sock`, override via `TEMENOS_SOCKET_PATH`). Admin socket has 0o600 filesystem permissions.
+- **MCP server** — HTTP on TCP `127.0.0.1:{MCPPort}` (default 9783). Binds to localhost only for security.
+
+Both listeners share the same sandbox instance and session store.
+
+Admin endpoints:
 - `POST /run` — execute a command in the sandbox with specified allowed paths, env vars, timeout
 - `GET /health` — platform/version info
+
+MCP endpoint:
+- `/mcp` — MCP Streamable HTTP endpoint for tool-based command execution (session token required via `X-Session-Token` header)
 
 **Sandbox** (`sandbox/`) — Platform-dispatched via `sandbox.New(Options)` → `Sandbox` interface:
 - `SeatbeltSandbox` (macOS) — uses `/usr/bin/sandbox-exec` with embedded `.sbpl` policy templates. Seatbelt cannot remap paths (Source must equal Target on mounts).

@@ -22,7 +22,7 @@ type Client struct {
 }
 
 // defaultSocketPath resolves the temenos socket path, mirroring daemon.DefaultSocketPath.
-// TEMENOS_SOCKET_PATH overrides the default ~/.ttal/temenos.sock.
+// TEMENOS_SOCKET_PATH overrides the default ~/.temenos/daemon.sock.
 func defaultSocketPath() (string, error) {
 	if p := os.Getenv("TEMENOS_SOCKET_PATH"); p != "" {
 		return p, nil
@@ -31,7 +31,7 @@ func defaultSocketPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("temenos: cannot determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".ttal", "temenos.sock"), nil
+	return filepath.Join(home, ".temenos", "daemon.sock"), nil
 }
 
 // resolveAddr resolves the daemon address from environment.

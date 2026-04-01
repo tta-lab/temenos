@@ -103,8 +103,8 @@ func TestResolveAddrFromEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.HasSuffix(addr, ".ttal/temenos.sock") {
-			t.Errorf("resolveAddr() = %q; want suffix .ttal/temenos.sock", addr)
+		if !strings.HasSuffix(addr, ".temenos/daemon.sock") {
+			t.Errorf("resolveAddr() = %q; want suffix .temenos/daemon.sock", addr)
 		}
 	})
 }

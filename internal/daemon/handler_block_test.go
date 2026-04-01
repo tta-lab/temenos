@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -64,7 +65,7 @@ func TestHandleRunBlock_Basic(t *testing.T) {
 		Block:  "§ echo one\n§ echo two\n",
 		Prefix: "§ ",
 	}
-	resp, err := handleRunBlock(t.Context(), sbx, req)
+	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 2)
 	assert.Equal(t, "echo one", resp.Results[0].Command)
@@ -91,7 +92,7 @@ func TestHandleRunBlock_StopOnError_Default(t *testing.T) {
 		Prefix: "§ ",
 		// StopOnError omitted → default true
 	}
-	resp, err := handleRunBlock(t.Context(), sbx, req)
+	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	assert.Len(t, resp.Results, 2, "should stop after cmd2 (exit code 1)")
 }
@@ -113,7 +114,7 @@ func TestHandleRunBlock_StopOnError_True(t *testing.T) {
 		Prefix:      "§ ",
 		StopOnError: boolPtr(true),
 	}
-	resp, err := handleRunBlock(t.Context(), sbx, req)
+	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	assert.Len(t, resp.Results, 2, "should stop after cmd2 (exit code 1)")
 }
@@ -135,7 +136,7 @@ func TestHandleRunBlock_StopOnError_False(t *testing.T) {
 		Prefix:      "§ ",
 		StopOnError: boolPtr(false),
 	}
-	resp, err := handleRunBlock(t.Context(), sbx, req)
+	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	assert.Len(t, resp.Results, 3, "should execute all 3 commands")
 }
@@ -155,7 +156,7 @@ func TestHandleRunBlock_Heredoc(t *testing.T) {
 		Block:  "§ cat <<'EOF'\nhello\nEOF\n§ ls\n",
 		Prefix: "§ ",
 	}
-	resp, err := handleRunBlock(t.Context(), sbx, req)
+	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 2)
 	// First command should have full heredoc body
@@ -169,7 +170,7 @@ func TestHandleRunBlock_Validation_EmptyBlock(t *testing.T) {
 		Block:  "",
 		Prefix: "§ ",
 	}
-	_, err := handleRunBlock(t.Context(), sbx, req)
+	_, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errHTTPValidation)
 }
@@ -180,7 +181,7 @@ func TestHandleRunBlock_Validation_EmptyPrefix(t *testing.T) {
 		Block:  "§ ls\n",
 		Prefix: "",
 	}
-	_, err := handleRunBlock(t.Context(), sbx, req)
+	_, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errHTTPValidation)
 }
@@ -192,7 +193,7 @@ func TestHandleRunBlock_Validation_InvalidPath(t *testing.T) {
 		Prefix:       "§ ",
 		AllowedPaths: []AllowedPath{{Path: "relative/path", ReadOnly: false}},
 	}
-	_, err := handleRunBlock(t.Context(), sbx, req)
+	_, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errHTTPValidation)
 }
@@ -203,7 +204,7 @@ func TestHandleRunBlock_NoMatchingCommands(t *testing.T) {
 		Block:  "just some text\nno commands here\n",
 		Prefix: "§ ",
 	}
-	resp, err := handleRunBlock(t.Context(), sbx, req)
+	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	assert.Empty(t, resp.Results, "no prefix-matching lines → empty results, not error")
 }
@@ -215,7 +216,7 @@ func TestHandleRunBlock_Timeout_PerCommand(t *testing.T) {
 		Prefix:  "§ ",
 		Timeout: 5,
 	}
-	resp, err := handleRunBlock(t.Context(), sbx, req)
+	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 2)
 	require.Len(t, sbx.deadlines, 2)
@@ -250,7 +251,7 @@ func TestHandleRunBlock_ContextCancellation(t *testing.T) {
 		Block:  "§ cmd1\n§ cmd2\n",
 		Prefix: "§ ",
 	}
-	resp, err := handleRunBlock(ctx, cancelAfterOneSandbox, req)
+	resp, err := handleRunBlock(ctx, &config.Config{}, cancelAfterOneSandbox, req)
 	require.NoError(t, err)
 	assert.Len(t, resp.Results, 1, "second command should not execute after context cancel")
 }

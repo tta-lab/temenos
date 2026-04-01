@@ -36,14 +36,14 @@ temenos daemon install
 temenos daemon status
 
 # Run a command in the sandbox (via the Go client or curl)
-curl --unix-socket ~/.ttal/temenos.sock http://temenos/run \
+curl --unix-socket ~/.temenos/daemon.sock http://temenos/run \
   -X POST -H "Content-Type: application/json" \
   -d '{"command": "echo hello from the sandbox"}'
 ```
 
 ## Daemon management
 
-The daemon listens on a unix socket at `~/.ttal/temenos.sock` (override with `TEMENOS_SOCKET_PATH`).
+The daemon listens on a unix socket at `~/.temenos/daemon.sock` (override with `TEMENOS_SOCKET_PATH`).
 
 ```bash
 temenos daemon install     # install as launchd service + start
@@ -54,7 +54,7 @@ temenos daemon restart     # restart via launchctl kickstart
 temenos daemon status      # check if running
 ```
 
-On macOS, `daemon install` writes a LaunchAgent plist to `~/Library/LaunchAgents/` with `RunAtLoad` and `KeepAlive` enabled. Logs go to `~/.ttal/temenos.{stdout,stderr}.log`.
+On macOS, `daemon install` writes a LaunchAgent plist to `~/Library/LaunchAgents/` with `RunAtLoad` and `KeepAlive` enabled. Logs go to `~/.temenos/temenos.{stdout,stderr}.log`.
 
 ## API
 

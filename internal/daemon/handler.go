@@ -10,7 +10,10 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/parse"
+	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -84,14 +87,18 @@ func validatePath(p string) error {
 	return nil
 }
 
-// buildMounts converts AllowedPath slice into sandbox.Mount slice, validating each path.
-// After building explicit mounts, it appends ancestor directories of all non-MetadataOnly
+// buildMounts prepends baseline mounts, converts AllowedPath slice into sandbox.Mount
+// slice (with validation), then appends ancestor directories of all non-MetadataOnly
 // mounts as MetadataOnly mounts. This lets sandboxed processes stat parent directories
 // (e.g. git rev-parse --path-format=absolute walks up the tree) without granting broader
 // access. Ancestors are appended AFTER explicit mounts to preserve mounts[0].Source as
 // the working directory in buildExecConfig. Root (/) is excluded.
-func buildMounts(paths []AllowedPath) ([]sandbox.Mount, error) {
-	mounts := make([]sandbox.Mount, 0, len(paths))
+func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount, error) {
+	// Start with baseline mounts (from config).
+	mounts := make([]sandbox.Mount, len(baseline))
+	copy(mounts, baseline)
+
+	// Append mounts from the request's AllowedPaths.
 	for _, ap := range paths {
 		if err := validatePath(ap.Path); err != nil {
 			return nil, fmt.Errorf("%w: %w", errHTTPValidation, err)
@@ -104,31 +111,7 @@ func buildMounts(paths []AllowedPath) ([]sandbox.Mount, error) {
 		})
 	}
 
-	// Compute ancestor metadata mounts for all non-MetadataOnly entries.
-	// Deduplicate by path — skip ancestors already present at any permission level.
-	existing := make(map[string]bool, len(mounts))
-	for _, m := range mounts {
-		existing[m.Source] = true
-	}
-	for _, m := range mounts {
-		if m.MetadataOnly {
-			continue
-		}
-		dir := filepath.Dir(m.Source)
-		for dir != "/" && dir != "." {
-			if !existing[dir] {
-				existing[dir] = true
-				mounts = append(mounts, sandbox.Mount{
-					Source:       dir,
-					Target:       dir,
-					MetadataOnly: true,
-				})
-			}
-			dir = filepath.Dir(dir)
-		}
-	}
-
-	return mounts, nil
+	return sandbox.AddAncestorMounts(mounts), nil
 }
 
 // buildEnvSlice converts a map of env vars to a KEY=VALUE slice.
@@ -153,14 +136,14 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount) *sandbox.ExecCon
 	return cfg
 }
 
-func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
+func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
 		defer cancel()
 	}
 
-	mounts, err := buildMounts(req.AllowedPaths)
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +162,9 @@ func handleRun(ctx context.Context, sbx sandbox.Sandbox, req RunRequest) (*RunRe
 	}, nil
 }
 
-func handleRunBlock(ctx context.Context, sbx sandbox.Sandbox, req RunBlockRequest) (*RunBlockResponse, error) {
+func handleRunBlock(
+	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunBlockRequest,
+) (*RunBlockResponse, error) {
 	if req.Block == "" {
 		return nil, fmt.Errorf("%w: block must not be empty", errHTTPValidation)
 	}
@@ -192,7 +177,7 @@ func handleRunBlock(ctx context.Context, sbx sandbox.Sandbox, req RunBlockReques
 		stopOnError = *req.StopOnError
 	}
 
-	mounts, err := buildMounts(req.AllowedPaths)
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -287,4 +272,77 @@ func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
 // body limit, and returns HTTP 400 for validation errors, 500 for sandbox errors.
 func handleHTTPRunBlockValidating(h httpHandlers) http.HandlerFunc {
 	return handleHTTPValidating(h.runBlock)
+}
+
+// SessionRegisterResponse is the POST /session/register response.
+type SessionRegisterResponse struct {
+	Token string `json:"token"`
+}
+
+func handleSessionRegister(store *session.Store, req session.RegisterRequest) (*SessionRegisterResponse, error) {
+	s, err := store.Register(req)
+	if err != nil {
+		return nil, err
+	}
+	return &SessionRegisterResponse{Token: s.Token}, nil
+}
+
+func handleSessionDelete(store *session.Store, token string) error {
+	return store.Delete(token)
+}
+
+func handleSessionList(store *session.Store) []session.Session {
+	return store.List()
+}
+
+// handleHTTPSessionRegister handles POST /session/register.
+// Returns 400 if agent or access field is empty.
+func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		var req session.RegisterRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Agent == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent must not be empty"})
+			return
+		}
+		if req.Access != "rw" && req.Access != "ro" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "access must be \"rw\" or \"ro\""})
+			return
+		}
+		resp, err := handleSessionRegister(store, req)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+// handleHTTPSessionDelete handles DELETE /session/{token}.
+// Returns 404 if token not found.
+func handleHTTPSessionDelete(store *session.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := chi.URLParam(r, "token")
+		if store.Get(token) == nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		if err := handleSessionDelete(store, token); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleHTTPSessionList handles GET /session/list.
+func handleHTTPSessionList(store *session.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessions := handleSessionList(store)
+		writeJSON(w, http.StatusOK, sessions)
+	}
 }

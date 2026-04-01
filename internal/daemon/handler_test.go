@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -27,7 +28,7 @@ func TestHandleRun_SetsWorkingDir(t *testing.T) {
 		Command:      "pwd",
 		AllowedPaths: []AllowedPath{{Path: "/Users/neil/project", ReadOnly: true}},
 	}
-	_, err := handleRun(t.Context(), sbx, req)
+	_, err := handleRun(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	assert.Equal(t, "/Users/neil/project", sbx.lastCfg.WorkingDir)
@@ -36,7 +37,7 @@ func TestHandleRun_SetsWorkingDir(t *testing.T) {
 func TestHandleRun_NoAllowedPaths_EmptyWorkingDir(t *testing.T) {
 	sbx := &captureSandbox{}
 	req := RunRequest{Command: "echo hi"}
-	_, err := handleRun(t.Context(), sbx, req)
+	_, err := handleRun(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	assert.Empty(t, sbx.lastCfg.WorkingDir)
@@ -46,7 +47,7 @@ func TestBuildMounts_MetadataOnlyPassedThrough(t *testing.T) {
 	paths := []AllowedPath{
 		{Path: "/some/path", ReadOnly: true, MetadataOnly: true},
 	}
-	mounts, err := buildMounts(paths)
+	mounts, err := buildMounts(nil, paths)
 	require.NoError(t, err)
 	// The MetadataOnly mount is returned, but no ancestors are added for it.
 	require.Len(t, mounts, 1)
@@ -58,7 +59,7 @@ func TestBuildMounts_AncestorMetadataInjected(t *testing.T) {
 	paths := []AllowedPath{
 		{Path: "/Users/neil/Code/project", ReadOnly: true},
 	}
-	mounts, err := buildMounts(paths)
+	mounts, err := buildMounts(nil, paths)
 	require.NoError(t, err)
 
 	// Collect by path for easy lookup.
@@ -88,7 +89,7 @@ func TestBuildMounts_AncestorDeduplicatesExistingMounts(t *testing.T) {
 		{Path: "/Users/neil/Code/project", ReadOnly: true},
 		{Path: "/Users/neil", ReadOnly: false}, // already present — should not be duplicated
 	}
-	mounts, err := buildMounts(paths)
+	mounts, err := buildMounts(nil, paths)
 	require.NoError(t, err)
 
 	counts := make(map[string]int)
@@ -114,9 +115,38 @@ func TestBuildMounts_WorkingDirPreservedWithAncestors(t *testing.T) {
 			{Path: "/Users/neil/Code/project", ReadOnly: true},
 		},
 	}
-	_, err := handleRun(t.Context(), sbx, req)
+	_, err := handleRun(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	// WorkingDir must still be the explicit mount, not an ancestor.
 	assert.Equal(t, "/Users/neil/Code/project", sbx.lastCfg.WorkingDir)
+}
+
+func TestBuildMounts_BaselinePrecedesRequestPaths(t *testing.T) {
+	baseline := []sandbox.Mount{
+		{Source: "/baseline/read", Target: "/baseline/read", ReadOnly: true},
+		{Source: "/baseline/write", Target: "/baseline/write", ReadOnly: false},
+	}
+	paths := []AllowedPath{
+		{Path: "/request/path", ReadOnly: false},
+	}
+
+	mounts, err := buildMounts(baseline, paths)
+	require.NoError(t, err)
+
+	// Baseline mounts must appear before request mounts.
+	require.GreaterOrEqual(t, len(mounts), 3)
+	assert.Equal(t, "/baseline/read", mounts[0].Source, "first baseline mount must be first")
+	assert.True(t, mounts[0].ReadOnly)
+	assert.Equal(t, "/baseline/write", mounts[1].Source, "second baseline mount must be second")
+	assert.False(t, mounts[1].ReadOnly)
+
+	// Request path must appear after baseline.
+	var foundRequest bool
+	for _, m := range mounts[2:] {
+		if m.Source == "/request/path" {
+			foundRequest = true
+		}
+	}
+	assert.True(t, foundRequest, "request path must appear after baseline mounts")
 }

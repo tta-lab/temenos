@@ -25,7 +25,7 @@ func Install() error {
 		return err
 	}
 
-	dataDir := filepath.Join(home, ".ttal")
+	dataDir := filepath.Join(home, ".temenos")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
