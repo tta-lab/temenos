@@ -15,7 +15,7 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
-// DefaultSocketPath returns ~/.ttal/temenos.sock.
+// DefaultSocketPath returns ~/.temenos/daemon.sock.
 // Override via TEMENOS_SOCKET_PATH.
 func DefaultSocketPath() (string, error) {
 	if p := os.Getenv("TEMENOS_SOCKET_PATH"); p != "" {
@@ -25,14 +25,14 @@ func DefaultSocketPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("temenos: cannot determine home directory: %w", err)
 	}
-	return filepath.Join(home, ".ttal", "temenos.sock"), nil
+	return filepath.Join(home, ".temenos", "daemon.sock"), nil
 }
 
 // listenAddr resolves the daemon listen address.
 // Priority:
 //  1. TEMENOS_LISTEN_ADDR (e.g. ":8081" for TCP, "/path/to/sock" for unix)
 //  2. TEMENOS_SOCKET_PATH (unix socket path, backward compat via DefaultSocketPath)
-//  3. Default: ~/.ttal/temenos.sock
+//  3. Default: ~/.temenos/daemon.sock
 func listenAddr() (string, error) {
 	if addr := os.Getenv("TEMENOS_LISTEN_ADDR"); addr != "" {
 		return addr, nil

@@ -23,7 +23,7 @@ Pre-commit hooks (lefthook): fmt check, vet, lint — run in parallel.
 
 ## Architecture
 
-**Daemon** (`internal/daemon/`) — HTTP server on unix socket (`~/.ttal/temenos.sock`, override via `TEMENOS_SOCKET_PATH`). Two endpoints:
+**Daemon** (`internal/daemon/`) — HTTP server on unix socket (`~/.temenos/daemon.sock`, override via `TEMENOS_SOCKET_PATH`). Two endpoints:
 - `POST /run` — execute a command in the sandbox with specified allowed paths, env vars, timeout
 - `GET /health` — platform/version info
 
