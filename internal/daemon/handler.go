@@ -335,8 +335,8 @@ func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent must not be empty"})
 			return
 		}
-		if req.Access == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "access must not be empty"})
+		if req.Access != "rw" && req.Access != "ro" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "access must be \"rw\" or \"ro\""})
 			return
 		}
 		resp, err := handleSessionRegister(r.Context(), store, req)

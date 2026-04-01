@@ -121,3 +121,32 @@ func TestBuildMounts_WorkingDirPreservedWithAncestors(t *testing.T) {
 	// WorkingDir must still be the explicit mount, not an ancestor.
 	assert.Equal(t, "/Users/neil/Code/project", sbx.lastCfg.WorkingDir)
 }
+
+func TestBuildMounts_BaselinePrecedesRequestPaths(t *testing.T) {
+	baseline := []sandbox.Mount{
+		{Source: "/baseline/read", Target: "/baseline/read", ReadOnly: true},
+		{Source: "/baseline/write", Target: "/baseline/write", ReadOnly: false},
+	}
+	paths := []AllowedPath{
+		{Path: "/request/path", ReadOnly: false},
+	}
+
+	mounts, err := buildMounts(baseline, paths)
+	require.NoError(t, err)
+
+	// Baseline mounts must appear before request mounts.
+	require.GreaterOrEqual(t, len(mounts), 3)
+	assert.Equal(t, "/baseline/read", mounts[0].Source, "first baseline mount must be first")
+	assert.True(t, mounts[0].ReadOnly)
+	assert.Equal(t, "/baseline/write", mounts[1].Source, "second baseline mount must be second")
+	assert.False(t, mounts[1].ReadOnly)
+
+	// Request path must appear after baseline.
+	var foundRequest bool
+	for _, m := range mounts[2:] {
+		if m.Source == "/request/path" {
+			foundRequest = true
+		}
+	}
+	assert.True(t, foundRequest, "request path must appear after baseline mounts")
+}

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -217,6 +218,8 @@ func (s *Store) PruneStale() {
 	}
 
 	if changed {
-		s.persistLocked() //nolint:errcheck
+		if err := s.persistLocked(); err != nil {
+			slog.Warn("session store: failed to persist after prune", "err", err)
+		}
 	}
 }

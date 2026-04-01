@@ -148,16 +148,17 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 			}, struct{}{}, nil
 		}
 		// Build mounts: config baseline (ro/rw from config) + session write paths.
+		// WritePaths are only appended as writable mounts for "rw" sessions.
 		mounts := cfg.BaselineMounts()
-		if sess != nil {
+		if sess != nil && sess.Access == "rw" {
 			for _, p := range sess.WritePaths {
 				mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: false})
 			}
 		}
 
-		// Determine working directory: first session write path, else first config write path.
+		// Determine working directory: first session write path (rw only), else first config write path.
 		workDir := ""
-		if sess != nil && len(sess.WritePaths) > 0 {
+		if sess != nil && sess.Access == "rw" && len(sess.WritePaths) > 0 {
 			workDir = sess.WritePaths[0]
 		} else if len(cfg.AllowWrite) > 0 {
 			workDir = cfg.AllowWrite[0]

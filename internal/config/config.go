@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -84,6 +85,8 @@ func Load(path string) (*Config, error) {
 	// Apply defaults if not set
 	if cfg.MCPPort == 0 {
 		cfg.MCPPort = 9783
+	} else if cfg.MCPPort < 1 || cfg.MCPPort > 65535 {
+		return nil, fmt.Errorf("mcp_port %d is out of range (1-65535)", cfg.MCPPort)
 	}
 	if cfg.SocketPath == "" {
 		cfg.SocketPath, err = ExpandHome("~/.temenos/daemon.sock")
@@ -93,8 +96,14 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Expand ~ in AllowRead, AllowWrite, and SocketPath
-	cfg.AllowRead = expandSlice(cfg.AllowRead)
-	cfg.AllowWrite = expandSlice(cfg.AllowWrite)
+	cfg.AllowRead, err = expandSlice(cfg.AllowRead)
+	if err != nil {
+		return nil, fmt.Errorf("allow_read: %w", err)
+	}
+	cfg.AllowWrite, err = expandSlice(cfg.AllowWrite)
+	if err != nil {
+		return nil, fmt.Errorf("allow_write: %w", err)
+	}
 	cfg.SocketPath, err = ExpandHome(cfg.SocketPath)
 	if err != nil {
 		return nil, err
@@ -104,17 +113,17 @@ func Load(path string) (*Config, error) {
 }
 
 // expandSlice expands ~ in each element of the slice.
-func expandSlice(paths []string) []string {
+// Returns an error if any path cannot be expanded.
+func expandSlice(paths []string) ([]string, error) {
 	result := make([]string, len(paths))
 	for i, p := range paths {
 		expanded, err := ExpandHome(p)
 		if err != nil {
-			result[i] = p
-		} else {
-			result[i] = expanded
+			return nil, fmt.Errorf("expand path %q: %w", p, err)
 		}
+		result[i] = expanded
 	}
-	return result
+	return result, nil
 }
 
 // BaselineMounts converts the config's AllowRead and AllowWrite paths

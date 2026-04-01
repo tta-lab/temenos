@@ -141,6 +141,8 @@ func Run(version string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Warn("admin server shutdown error", "err", err)
+	}
 	return mcpSrv.Shutdown(ctx)
 }
