@@ -27,7 +27,6 @@ type RunRequest struct {
 }
 
 // AllowedPath specifies a filesystem mount for the sandbox.
-// AllowedPath specifies a filesystem mount for the sandbox.
 type AllowedPath struct {
 	Path         string `json:"path"`
 	ReadOnly     bool   `json:"read_only"`

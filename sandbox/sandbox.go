@@ -32,7 +32,6 @@ type ExecConfig struct {
 }
 
 // Mount represents a filesystem mount inside the sandbox.
-// Mount represents a filesystem mount inside the sandbox.
 type Mount struct {
 	Source   string
 	Target   string

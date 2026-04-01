@@ -18,9 +18,6 @@ var seatbeltPlatform string
 
 // buildPolicy assembles a seatbelt policy string from embedded templates and mount config.
 // Returns the policy text and -D parameter flags for sandbox-exec.
-// Returns an error if any Mount has Source != Target (seatbelt can't remap paths).
-// buildPolicy assembles a seatbelt policy string from embedded templates and mount config.
-// Returns the policy text and -D parameter flags for sandbox-exec.
 // Returns an error if any non-MetadataOnly Mount has Source != Target (seatbelt can't remap paths).
 func buildPolicy(cfg *ExecConfig) (policy string, params []string, err error) {
 	var b strings.Builder

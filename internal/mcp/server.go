@@ -96,11 +96,6 @@ func Serve(version string) error {
 //   - cwd: the working directory (read-write if TEMENOS_WRITE=true, else read-only)
 //   - TEMENOS_PATHS: comma-separated list of additional paths (format: path or path:ro or path:rw)
 //   - ~/.ttal/daemon.sock: ttal daemon socket for ttal commands inside sandbox
-//
-// resolveAllowedPaths builds the sandbox allowed paths from env config:
-//   - cwd: the working directory (read-write if TEMENOS_WRITE=true, else read-only)
-//   - TEMENOS_PATHS: comma-separated list of additional paths (format: path or path:ro or path:rw)
-//   - ~/.ttal/daemon.sock: ttal daemon socket for ttal commands inside sandbox
 func resolveAllowedPaths() ([]client.AllowedPath, error) {
 	cwd, err := os.Getwd()
 	if err != nil {

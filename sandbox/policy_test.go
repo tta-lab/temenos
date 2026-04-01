@@ -169,5 +169,4 @@ func TestBuildPolicy_MixedMounts(t *testing.T) {
 	assert.True(t, hasMetadata, "expected METADATA_ROOT param for /ancestor")
 
 	assert.Contains(t, policy, `file-read-metadata (literal`)
-	_ = policy
 }
