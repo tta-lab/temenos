@@ -213,7 +213,8 @@ func TestPruneStaleRemovesMissingWritePaths(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify session exists
-	_, inMap := store.sessions[session.Token]; require.True(t, inMap, "session should be in map before pruning")
+	_, inMap := store.sessions[session.Token]
+	require.True(t, inMap, "session should be in map before pruning")
 
 	// Prune should remove it
 	store.PruneStale()
@@ -236,7 +237,8 @@ func TestPruneStaleRemovesExpired(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify session is in map before pruning (Get filters expired, so check map directly)
-	_, inMap := store.sessions[session.Token]; require.True(t, inMap, "session should be in map before pruning")
+	_, inMap := store.sessions[session.Token]
+	require.True(t, inMap, "session should be in map before pruning")
 
 	// Prune should remove it
 	store.PruneStale()

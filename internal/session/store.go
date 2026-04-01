@@ -25,7 +25,7 @@ type Session struct {
 // RegisterRequest is the request to create a new session.
 type RegisterRequest struct {
 	Agent      string   `json:"agent"`
-	Access     string   `json:"access"`       // "rw" or "ro"
+	Access     string   `json:"access"` // "rw" or "ro"
 	WritePaths []string `json:"write_paths,omitempty"`
 }
 
