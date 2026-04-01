@@ -95,7 +95,7 @@ func runCmdWithHook(
 
 // buildEnv constructs the environment for a sandboxed process.
 // fallbackHome sets HOME when cfg.Env does not provide one; if empty, defaults to "/home/agent".
-// If cfg.Env contains a HOME= entry, it takes precedence — allowing the caller (e.g. MCP server)
+// If cfg.Env contains a HOME= entry, it takes precedence — allowing the caller (e.g. daemon handler)
 // to forward the real HOME so tools can find their config files naturally. The sandbox's
 // filesystem policy (seatbelt/bwrap) is the security boundary, not HOME.
 // PATH is built from buildSandboxPATH() which includes all discovered
