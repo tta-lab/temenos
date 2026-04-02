@@ -337,3 +337,10 @@ func TestBuildExecConfig_NoSessionNoWritePaths_FallsBackToTempDir(t *testing.T) 
 	execCfg := buildExecConfig(cfg, nil)
 	assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
 }
+
+func TestBuildExecConfig_ReadOnlySession_UsesConfigAllowWrite(t *testing.T) {
+	cfg := &config.Config{AllowWrite: []string{"/config-write"}}
+	roSess := &session.Session{Access: "ro"}
+	execCfg := buildExecConfig(cfg, roSess)
+	assert.Equal(t, "/config-write", execCfg.WorkingDir)
+}

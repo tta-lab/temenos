@@ -125,8 +125,9 @@ func buildEnvSlice(env map[string]string) []string {
 }
 
 // buildExecConfig constructs a sandbox ExecConfig from environment and mounts.
-// WorkingDir is derived from the first per-request path if present, otherwise
-// falls back to os.TempDir(). Baseline mounts are never used for WorkingDir.
+// WorkingDir is derived from the first per-request path if present (normalized
+// with filepath.Clean), otherwise falls back to os.TempDir(). Baseline mounts
+// from config contribute to MountDirs but do not affect WorkingDir.
 func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []AllowedPath) *sandbox.ExecConfig {
 	cfg := &sandbox.ExecConfig{Env: envSlice, MountDirs: mounts}
 	if len(requestPaths) > 0 {
