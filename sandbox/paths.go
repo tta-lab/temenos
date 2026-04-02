@@ -76,64 +76,20 @@ func linuxToolDirs() []ToolDir {
 // environment (GOPATH, HOME). These vary per installation.
 func dynamicToolDirs() []ToolDir {
 	var dirs []ToolDir
-
-	// Go: GOPATH/bin (typically ~/go/bin).
-	if gopathBin := resolveGOPATHBin(); gopathBin != "" {
-		dirs = append(dirs, ToolDir{
-			BinDir:   gopathBin,
-			ReadDirs: []string{gopathBin},
-		})
+	add := func(binDir string) {
+		if binDir != "" {
+			dirs = append(dirs, ToolDir{BinDir: binDir, ReadDirs: []string{binDir}})
+		}
 	}
-
-	// Cargo: ~/.cargo/bin.
-	if cargoBin := resolveHomeSub(".cargo", "bin"); cargoBin != "" {
-		dirs = append(dirs, ToolDir{
-			BinDir:   cargoBin,
-			ReadDirs: []string{cargoBin},
-		})
-	}
-
-	// mise: ~/.local/share/mise (polyglot version manager — node, python, ruby, etc.).
-	// Shims dir for PATH, full installs tree for read access.
+	add(resolveGOPATHBin())
+	add(resolveHomeSub(".cargo", "bin"))
 	if miseRoot := resolveHomeSub(".local", "share", "mise"); miseRoot != "" {
-		dirs = append(dirs, ToolDir{
-			BinDir:   filepath.Join(miseRoot, "shims"),
-			ReadDirs: []string{miseRoot},
-		})
+		dirs = append(dirs, ToolDir{BinDir: filepath.Join(miseRoot, "shims"), ReadDirs: []string{miseRoot}})
 	}
-
-	// ~/.local/bin: standard user bin dir (pipx, user-installed scripts).
-	if localBin := resolveHomeSub(".local", "bin"); localBin != "" {
-		dirs = append(dirs, ToolDir{
-			BinDir:   localBin,
-			ReadDirs: []string{localBin},
-		})
-	}
-
-	// Bun: ~/.bun/bin.
-	if bunBin := resolveHomeSub(".bun", "bin"); bunBin != "" {
-		dirs = append(dirs, ToolDir{
-			BinDir:   bunBin,
-			ReadDirs: []string{bunBin},
-		})
-	}
-
-	// proto: ~/.proto/bin (toolchain manager).
-	if protoBin := resolveHomeSub(".proto", "bin"); protoBin != "" {
-		dirs = append(dirs, ToolDir{
-			BinDir:   protoBin,
-			ReadDirs: []string{protoBin},
-		})
-	}
-
-	// qlty: ~/.qlty/bin (quality tooling).
-	if qltyBin := resolveHomeSub(".qlty", "bin"); qltyBin != "" {
-		dirs = append(dirs, ToolDir{
-			BinDir:   qltyBin,
-			ReadDirs: []string{qltyBin},
-		})
-	}
-
+	add(resolveHomeSub(".local", "bin"))
+	add(resolveHomeSub(".bun", "bin"))
+	add(resolveHomeSub(".proto", "bin"))
+	add(resolveHomeSub(".qlty", "bin"))
 	return dirs
 }
 
@@ -182,24 +138,20 @@ var (
 // since HOME/GOPATH are stable for the daemon's lifetime.
 func allToolDirs() []ToolDir {
 	cachedToolDirsOnce.Do(func() {
-		static := staticToolDirs()
-		dynamic := dynamicToolDirs()
-		all := make([]ToolDir, 0, len(static)+len(dynamic))
-		all = append(all, static...)
-		all = append(all, dynamic...)
-
-		for _, td := range all {
-			if td.BinDir == "" {
-				continue
-			}
-			if _, err := os.Stat(td.BinDir); err != nil {
-				if !errors.Is(err, fs.ErrNotExist) {
-					slog.Warn("sandbox: unexpected error checking tool dir",
-						"path", td.BinDir, "err", err)
+		for _, dirs := range [][]ToolDir{staticToolDirs(), dynamicToolDirs()} {
+			for _, td := range dirs {
+				if td.BinDir == "" {
+					continue
 				}
-				continue
+				if _, err := os.Stat(td.BinDir); err != nil {
+					if !errors.Is(err, fs.ErrNotExist) {
+						slog.Warn("sandbox: unexpected error checking tool dir",
+							"path", td.BinDir, "err", err)
+					}
+					continue
+				}
+				cachedToolDirs = append(cachedToolDirs, td)
 			}
-			cachedToolDirs = append(cachedToolDirs, td)
 		}
 	})
 	return cachedToolDirs
@@ -224,12 +176,12 @@ func resetToolDirsCache() {
 // read-only via --ro-bind /usr /usr, so no extra grant is needed.
 func buildSandboxPATH() string {
 	tools := allToolDirs()
-	base := make([]string, 0, 3+len(tools))
-	base = append(base, "/usr/bin", "/usr/local/bin", "/bin")
+	paths := make([]string, 0, 3+len(tools))
+	paths = append(paths, "/usr/bin", "/usr/local/bin", "/bin")
 	for _, td := range tools {
-		base = append(base, td.BinDir)
+		paths = append(paths, td.BinDir)
 	}
-	return strings.Join(base, ":")
+	return strings.Join(paths, ":")
 }
 
 // seatbeltMetadataDirs returns parent directories that need
