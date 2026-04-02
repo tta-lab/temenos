@@ -62,8 +62,7 @@ func TestHandleRunBlock_Basic(t *testing.T) {
 		},
 	}
 	req := RunBlockRequest{
-		Block:  "§ echo one\n§ echo two\n",
-		Prefix: "§ ",
+		Block: "§ echo one\n§ echo two\n",
 	}
 	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
@@ -88,8 +87,7 @@ func TestHandleRunBlock_StopOnError_Default(t *testing.T) {
 		},
 	}
 	req := RunBlockRequest{
-		Block:  "§ cmd1\n§ cmd2\n§ cmd3\n",
-		Prefix: "§ ",
+		Block: "§ cmd1\n§ cmd2\n§ cmd3\n",
 		// StopOnError omitted → default true
 	}
 	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
@@ -111,7 +109,6 @@ func TestHandleRunBlock_StopOnError_True(t *testing.T) {
 	}
 	req := RunBlockRequest{
 		Block:       "§ cmd1\n§ cmd2\n§ cmd3\n",
-		Prefix:      "§ ",
 		StopOnError: boolPtr(true),
 	}
 	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
@@ -133,7 +130,6 @@ func TestHandleRunBlock_StopOnError_False(t *testing.T) {
 	}
 	req := RunBlockRequest{
 		Block:       "§ cmd1\n§ cmd2\n§ cmd3\n",
-		Prefix:      "§ ",
 		StopOnError: boolPtr(false),
 	}
 	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
@@ -153,8 +149,7 @@ func TestHandleRunBlock_Heredoc(t *testing.T) {
 		},
 	}
 	req := RunBlockRequest{
-		Block:  "§ cat <<'EOF'\nhello\nEOF\n§ ls\n",
-		Prefix: "§ ",
+		Block: "§ cat <<'EOF'\nhello\nEOF\n§ ls\n",
 	}
 	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
@@ -167,19 +162,7 @@ func TestHandleRunBlock_Heredoc(t *testing.T) {
 func TestHandleRunBlock_Validation_EmptyBlock(t *testing.T) {
 	sbx := &captureSandbox{}
 	req := RunBlockRequest{
-		Block:  "",
-		Prefix: "§ ",
-	}
-	_, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, errHTTPValidation)
-}
-
-func TestHandleRunBlock_Validation_EmptyPrefix(t *testing.T) {
-	sbx := &captureSandbox{}
-	req := RunBlockRequest{
-		Block:  "§ ls\n",
-		Prefix: "",
+		Block: "",
 	}
 	_, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.Error(t, err)
@@ -190,7 +173,6 @@ func TestHandleRunBlock_Validation_InvalidPath(t *testing.T) {
 	sbx := &captureSandbox{}
 	req := RunBlockRequest{
 		Block:        "§ ls\n",
-		Prefix:       "§ ",
 		AllowedPaths: []AllowedPath{{Path: "relative/path", ReadOnly: false}},
 	}
 	_, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
@@ -201,8 +183,7 @@ func TestHandleRunBlock_Validation_InvalidPath(t *testing.T) {
 func TestHandleRunBlock_NoMatchingCommands(t *testing.T) {
 	sbx := &captureSandbox{}
 	req := RunBlockRequest{
-		Block:  "just some text\nno commands here\n",
-		Prefix: "§ ",
+		Block: "just some text\nno commands here\n",
 	}
 	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
@@ -213,7 +194,6 @@ func TestHandleRunBlock_Timeout_PerCommand(t *testing.T) {
 	sbx := &deadlineSandbox{}
 	req := RunBlockRequest{
 		Block:   "§ cmd1\n§ cmd2\n",
-		Prefix:  "§ ",
 		Timeout: 5,
 	}
 	resp, err := handleRunBlock(t.Context(), &config.Config{}, sbx, req)
@@ -248,8 +228,7 @@ func TestHandleRunBlock_ContextCancellation(t *testing.T) {
 	cancelAfterOneSandbox := &cancelAfterNSandbox{inner: sbx, n: 1, cancel: cancel}
 
 	req := RunBlockRequest{
-		Block:  "§ cmd1\n§ cmd2\n",
-		Prefix: "§ ",
+		Block: "§ cmd1\n§ cmd2\n",
 	}
 	resp, err := handleRunBlock(ctx, &config.Config{}, cancelAfterOneSandbox, req)
 	require.NoError(t, err)

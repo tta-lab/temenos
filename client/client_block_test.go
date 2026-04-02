@@ -36,10 +36,6 @@ func TestRunBlock_RoundTrip(t *testing.T) {
 			http.Error(w, "block is empty", http.StatusBadRequest)
 			return
 		}
-		if req.Prefix != "§ " {
-			http.Error(w, "unexpected prefix: "+req.Prefix, http.StatusBadRequest)
-			return
-		}
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(want); err != nil {
@@ -54,8 +50,7 @@ func TestRunBlock_RoundTrip(t *testing.T) {
 	}
 
 	resp, err := c.RunBlock(context.Background(), RunBlockRequest{
-		Block:  "§ echo hello\n§ pwd\n",
-		Prefix: "§ ",
+		Block: "§ echo hello\n§ pwd\n",
 	})
 	if err != nil {
 		t.Fatalf("RunBlock: %v", err)
@@ -90,8 +85,7 @@ func TestRunBlock_HTTPError(t *testing.T) {
 	}
 
 	_, err = c.RunBlock(context.Background(), RunBlockRequest{
-		Block:  "§ ls\n",
-		Prefix: "§ ",
+		Block: "§ ls\n",
 	})
 	if err == nil {
 		t.Fatal("expected error from non-200 status, got nil")

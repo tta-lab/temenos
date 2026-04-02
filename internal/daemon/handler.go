@@ -47,7 +47,6 @@ type RunResponse struct {
 // RunBlockRequest is the POST /run-block body.
 type RunBlockRequest struct {
 	Block        string            `json:"block"`
-	Prefix       string            `json:"prefix"`
 	StopOnError  *bool             `json:"stop_on_error,omitempty"` // default true
 	Env          map[string]string `json:"env,omitempty"`
 	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`
@@ -170,9 +169,6 @@ func handleRunBlock(
 	if req.Block == "" {
 		return nil, fmt.Errorf("%w: block must not be empty", errHTTPValidation)
 	}
-	if req.Prefix == "" {
-		return nil, fmt.Errorf("%w: prefix must not be empty", errHTTPValidation)
-	}
 
 	stopOnError := true
 	if req.StopOnError != nil {
@@ -185,7 +181,7 @@ func handleRunBlock(
 	}
 
 	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts, req.AllowedPaths)
-	cmds := parse.ParseBlock(req.Block, req.Prefix)
+	cmds := parse.ParseBlock(req.Block)
 	results := make([]CommandResult, 0, len(cmds))
 
 	for _, cmd := range cmds {

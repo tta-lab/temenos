@@ -28,7 +28,7 @@ func TestParseBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmds := ParseBlock(tt.block, Barrier)
+			cmds := ParseBlock(tt.block)
 			var gotArgs []string
 			for _, c := range cmds {
 				gotArgs = append(gotArgs, c.Args)

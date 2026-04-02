@@ -12,7 +12,7 @@ type Command struct {
 // ParseBlock splits a block of text on Barrier (§) lines and returns each command.
 // Everything between § lines becomes one command.
 // Lines before the first § are ignored.
-func ParseBlock(block, prefix string) []Command {
+func ParseBlock(block string) []Command {
 	lines := strings.Split(block, "\n")
 	var cmds []Command
 	var current strings.Builder
