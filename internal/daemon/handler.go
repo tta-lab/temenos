@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -123,15 +124,15 @@ func buildEnvSlice(env map[string]string) []string {
 	return s
 }
 
-// buildExecConfig constructs an ExecConfig from env and mounts.
-// WorkingDir is set to the first mount's source path if any mounts are present.
-func buildExecConfig(envSlice []string, mounts []sandbox.Mount) *sandbox.ExecConfig {
-	cfg := &sandbox.ExecConfig{
-		Env:       envSlice,
-		MountDirs: mounts,
-	}
-	if len(mounts) > 0 {
-		cfg.WorkingDir = mounts[0].Source
+// buildExecConfig constructs a sandbox ExecConfig from environment and mounts.
+// WorkingDir is derived from the first per-request path if present, otherwise
+// falls back to os.TempDir(). Baseline mounts are never used for WorkingDir.
+func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []AllowedPath) *sandbox.ExecConfig {
+	cfg := &sandbox.ExecConfig{Env: envSlice, MountDirs: mounts}
+	if len(requestPaths) > 0 {
+		cfg.WorkingDir = filepath.Clean(requestPaths[0].Path)
+	} else {
+		cfg.WorkingDir = os.TempDir()
 	}
 	return cfg
 }
@@ -148,7 +149,7 @@ func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req
 		return nil, err
 	}
 
-	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts)
+	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts, req.AllowedPaths)
 
 	stdout, stderr, exitCode, err := sbx.Exec(ctx, req.Command, execCfg)
 	if err != nil {
@@ -182,7 +183,7 @@ func handleRunBlock(
 		return nil, err
 	}
 
-	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts)
+	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts, req.AllowedPaths)
 	cmds := parse.ParseBlock(req.Block, req.Prefix)
 	results := make([]CommandResult, 0, len(cmds))
 

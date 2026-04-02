@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,23 +25,24 @@ func (c *captureSandbox) IsAvailable() bool { return true }
 
 func TestHandleRun_SetsWorkingDir(t *testing.T) {
 	sbx := &captureSandbox{}
+	cfg := &config.Config{AllowRead: []string{"/baseline/read"}}
 	req := RunRequest{
 		Command:      "pwd",
 		AllowedPaths: []AllowedPath{{Path: "/Users/neil/project", ReadOnly: true}},
 	}
-	_, err := handleRun(t.Context(), &config.Config{}, sbx, req)
+	_, err := handleRun(t.Context(), cfg, sbx, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	assert.Equal(t, "/Users/neil/project", sbx.lastCfg.WorkingDir)
 }
 
-func TestHandleRun_NoAllowedPaths_EmptyWorkingDir(t *testing.T) {
+func TestHandleRun_NoAllowedPaths_FallsBackToTempDir(t *testing.T) {
 	sbx := &captureSandbox{}
 	req := RunRequest{Command: "echo hi"}
 	_, err := handleRun(t.Context(), &config.Config{}, sbx, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
-	assert.Empty(t, sbx.lastCfg.WorkingDir)
+	assert.Equal(t, os.TempDir(), sbx.lastCfg.WorkingDir)
 }
 
 func TestBuildMounts_MetadataOnlyPassedThrough(t *testing.T) {
@@ -109,13 +111,14 @@ func TestBuildMounts_AncestorDeduplicatesExistingMounts(t *testing.T) {
 
 func TestBuildMounts_WorkingDirPreservedWithAncestors(t *testing.T) {
 	sbx := &captureSandbox{}
+	cfg := &config.Config{AllowWrite: []string{"/baseline/write"}}
 	req := RunRequest{
 		Command: "pwd",
 		AllowedPaths: []AllowedPath{
 			{Path: "/Users/neil/Code/project", ReadOnly: true},
 		},
 	}
-	_, err := handleRun(t.Context(), &config.Config{}, sbx, req)
+	_, err := handleRun(t.Context(), cfg, sbx, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	// WorkingDir must still be the explicit mount, not an ancestor.
@@ -149,4 +152,23 @@ func TestBuildMounts_BaselinePrecedesRequestPaths(t *testing.T) {
 		}
 	}
 	assert.True(t, foundRequest, "request path must appear after baseline mounts")
+}
+
+func TestHandleRunBlock_WorkingDirIsPerRequestPath(t *testing.T) {
+	sbx := &captureSandbox{}
+	cfg := &config.Config{
+		AllowRead:  []string{"/baseline/read"},
+		AllowWrite: []string{"/baseline/write"},
+	}
+	stop := true
+	req := RunBlockRequest{
+		Block:        "§ pwd",
+		Prefix:       "§",
+		StopOnError:  &stop,
+		AllowedPaths: []AllowedPath{{Path: "/Users/neil/myproject"}},
+	}
+	_, err := handleRunBlock(t.Context(), cfg, sbx, req)
+	require.NoError(t, err)
+	require.NotNil(t, sbx.lastCfg)
+	assert.Equal(t, "/Users/neil/myproject", sbx.lastCfg.WorkingDir)
 }

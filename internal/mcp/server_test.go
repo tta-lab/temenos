@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -329,4 +330,10 @@ func TestBuildExecConfig_ReadWriteSession_HasWriteMounts(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "rw session WritePath must appear in mounts")
+}
+
+func TestBuildExecConfig_NoSessionNoWritePaths_FallsBackToTempDir(t *testing.T) {
+	cfg := &config.Config{} // no AllowWrite
+	execCfg := buildExecConfig(cfg, nil)
+	assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
 }

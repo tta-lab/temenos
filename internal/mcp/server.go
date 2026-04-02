@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -149,7 +150,7 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 	}
 	mounts = sandbox.AddAncestorMounts(mounts)
 
-	workDir := ""
+	workDir := os.TempDir()
 	if sess != nil && sess.Access == "rw" && len(sess.WritePaths) > 0 {
 		workDir = sess.WritePaths[0]
 	} else if len(cfg.AllowWrite) > 0 {
