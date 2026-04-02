@@ -165,7 +165,6 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResponse, error) 
 // RunBlockRequest is the body for POST /run-block.
 type RunBlockRequest struct {
 	Block        string            `json:"block"`
-	Prefix       string            `json:"prefix"`
 	StopOnError  *bool             `json:"stop_on_error,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`
 	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`

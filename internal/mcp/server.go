@@ -173,7 +173,7 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 		execCfg := buildExecConfig(cfg, sess)
 
 		// Parse commands
-		cmds := parse.ParseBlock(input.Command, "§")
+		cmds := parse.ParseBlock(input.Command)
 
 		stopOnError := true
 		if input.StopOnError != nil {

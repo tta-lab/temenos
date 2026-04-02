@@ -163,7 +163,6 @@ func TestHandleRunBlock_WorkingDirIsPerRequestPath(t *testing.T) {
 	stop := true
 	req := RunBlockRequest{
 		Block:        "§ pwd",
-		Prefix:       "§",
 		StopOnError:  &stop,
 		AllowedPaths: []AllowedPath{{Path: "/Users/neil/myproject"}},
 	}
