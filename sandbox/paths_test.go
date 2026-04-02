@@ -71,41 +71,37 @@ func TestBuildSandboxPATH_ContainsGOPATH(t *testing.T) {
 	assert.Contains(t, path, "/test/gopath/bin")
 }
 
-func TestDynamicToolDirs_IncludesGOPATH(t *testing.T) {
+func TestDynamicToolDirs_ReturnsAllExpectedDirectories(t *testing.T) {
+	t.Setenv("HOME", "/test/home")
 	t.Setenv("GOPATH", "/test/gopath")
-	dirs := dynamicToolDirs()
-	binDirs := make([]string, 0, len(dirs))
-	for _, td := range dirs {
-		binDirs = append(binDirs, td.BinDir)
-	}
-	assert.Contains(t, binDirs, "/test/gopath/bin")
-}
 
-func TestDynamicToolDirs_IncludesAllExpected(t *testing.T) {
-	t.Setenv("HOME", "/test/home")
 	dirs := dynamicToolDirs()
-	binDirs := make([]string, 0, len(dirs))
+	binDirMap := make(map[string]ToolDir)
 	for _, td := range dirs {
-		binDirs = append(binDirs, td.BinDir)
+		binDirMap[td.BinDir] = td
 	}
-	assert.Contains(t, binDirs, "/test/home/.cargo/bin")
-	assert.Contains(t, binDirs, "/test/home/.local/share/mise/shims")
-	assert.Contains(t, binDirs, "/test/home/.local/bin")
-	assert.Contains(t, binDirs, "/test/home/.bun/bin")
-	assert.Contains(t, binDirs, "/test/home/.proto/bin")
-}
 
-func TestDynamicToolDirs_MiseReadDirsCoversInstalls(t *testing.T) {
-	t.Setenv("HOME", "/test/home")
-	dirs := dynamicToolDirs()
-	for _, td := range dirs {
-		if td.BinDir == "/test/home/.local/share/mise/shims" {
-			assert.Contains(t, td.ReadDirs, "/test/home/.local/share/mise",
-				"mise ReadDirs should cover the full installs tree")
-			return
-		}
+	tests := []struct {
+		name     string
+		binDir   string
+		readDirs []string
+	}{
+		{"GOPATH bin", "/test/gopath/bin", []string{"/test/gopath/bin"}},
+		{".cargo/bin", "/test/home/.cargo/bin", []string{"/test/home/.cargo/bin"}},
+		{".local/share/mise/shims", "/test/home/.local/share/mise/shims", []string{"/test/home/.local/share/mise"}},
+		{".local/bin", "/test/home/.local/bin", []string{"/test/home/.local/bin"}},
+		{".bun/bin", "/test/home/.bun/bin", []string{"/test/home/.bun/bin"}},
+		{".proto/bin", "/test/home/.proto/bin", []string{"/test/home/.proto/bin"}},
+		{".qlty/bin", "/test/home/.qlty/bin", []string{"/test/home/.qlty/bin"}},
 	}
-	t.Fatal("mise entry not found in dynamicToolDirs")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			td, ok := binDirMap[tt.binDir]
+			assert.True(t, ok, "expected %s in dirs", tt.binDir)
+			assert.Equal(t, tt.readDirs, td.ReadDirs)
+		})
+	}
 }
 
 func TestAllToolDirs_FiltersNonExistent(t *testing.T) {
