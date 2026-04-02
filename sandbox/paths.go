@@ -126,6 +126,14 @@ func dynamicToolDirs() []ToolDir {
 		})
 	}
 
+	// qlty: ~/.qlty/bin (quality tooling).
+	if qltyBin := resolveHomeSub(".qlty", "bin"); qltyBin != "" {
+		dirs = append(dirs, ToolDir{
+			BinDir:   qltyBin,
+			ReadDirs: []string{qltyBin},
+		})
+	}
+
 	return dirs
 }
 
