@@ -45,10 +45,27 @@ func ExpandHome(path string) (string, error) {
 	return filepath.Join(usr.HomeDir, path[1:]), nil
 }
 
+// defaultConfig returns a Config with sensible defaults for when no config file exists.
+func defaultConfig() (*Config, error) {
+	qltyPath, err := ExpandHome("~/.qlty")
+	if err != nil {
+		return nil, err
+	}
+	socketPath, err := ExpandHome("~/.temenos/daemon.sock")
+	if err != nil {
+		return nil, err
+	}
+	return &Config{
+		MCPPort:    9783,
+		AllowWrite: []string{qltyPath},
+		SocketPath: socketPath,
+	}, nil
+}
+
 // Load reads the configuration from the given path.
 // If path is empty, DefaultConfigPath() is used.
 // If the file does not exist, a default Config is returned.
-// Defaults: MCPPort=9783, SocketPath=~/.temenos/daemon.sock
+// Defaults: MCPPort=9783, SocketPath=~/.temenos/daemon.sock, AllowWrite=[~/.qlty]
 func Load(path string) (*Config, error) {
 	if path == "" {
 		var err error
@@ -61,15 +78,7 @@ func Load(path string) (*Config, error) {
 	// Check if file exists
 	_, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		// Return default config, expanding ~ in socket path
-		cfg := &Config{
-			MCPPort: 9783,
-		}
-		cfg.SocketPath, err = ExpandHome("~/.temenos/daemon.sock")
-		if err != nil {
-			return nil, err
-		}
-		return cfg, nil
+		return defaultConfig()
 	}
 	if err != nil {
 		return nil, err

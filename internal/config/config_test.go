@@ -43,6 +43,9 @@ func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, ".temenos/daemon.sock"), cfg.SocketPath)
+
+	// Verify qlty default AllowWrite
+	assert.Equal(t, []string{filepath.Join(home, ".qlty")}, cfg.AllowWrite)
 }
 
 func TestLoad_EmptyPath_UsesDefaultConfigPath(t *testing.T) {

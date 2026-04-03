@@ -1,8 +1,8 @@
-.PHONY: all build test fmt vet lint tidy ci install
+.PHONY: all build test fmt vet lint tidy ci install install-hooks qlty
 
 BINARY := temenos
 
-all: fmt vet tidy build
+all: fmt tidy qlty build
 
 build:
 	@echo "Building $(BINARY)..."
@@ -26,7 +26,12 @@ lint:
 tidy:
 	@go mod tidy
 
-ci: fmt vet lint test build
+qlty:
+	@echo "Running qlty check..."
+	@qlty check --all --no-progress
+	@echo "✓ Qlty check complete"
 
-run:
-	@go run ./cmd/temenos $(ARGS)
+install-hooks:
+	@qlty githooks install
+
+ci: fmt tidy qlty test build
