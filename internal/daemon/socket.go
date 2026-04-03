@@ -15,11 +15,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
+	"github.com/tta-lab/temenos/sandbox"
 )
 
 const (
 	serverReadTimeout  = 30 * time.Second
-	serverWriteTimeout = 120 * time.Second
+	serverWriteTimeout = sandbox.DefaultTimeout
 	networkUnix        = "unix"
 )
 

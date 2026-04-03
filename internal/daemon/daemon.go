@@ -65,7 +65,7 @@ func Run(version string) error {
 	}
 
 	sbx := sandbox.New(sandbox.Options{
-		Timeout:          sandbox.Seconds(120),
+		Timeout:          sandbox.DefaultTimeout,
 		AllowUnsandboxed: false,
 		MemoryLimitMB:    memLimitMB,
 		RequireCgroup:    parseRequireCgroup(),

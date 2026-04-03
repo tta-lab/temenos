@@ -20,7 +20,7 @@ type contextKey struct{}
 var sessionKey = contextKey{}
 
 const (
-	defaultTimeout = 120
+	defaultTimeout = sandbox.DefaultTimeoutSecs
 )
 
 var tokenRegex = regexp.MustCompile(`^[a-f0-9]{64}$`)
