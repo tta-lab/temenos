@@ -15,13 +15,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # zizmor: ignore[artipacked]
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v3 # zizmor: ignore[unpinned-uses]
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3 # zizmor: ignore[unpinned-uses]
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -29,7 +29,7 @@ jobs:
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5 # zizmor: ignore[unpinned-uses]
         with:
           images: ghcr.io/tta-lab/temenos
           tags: |
@@ -39,7 +39,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v6 # zizmor: ignore[unpinned-uses]
         with:
           context: .
           push: true

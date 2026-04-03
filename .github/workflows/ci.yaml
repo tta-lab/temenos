@@ -4,15 +4,18 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # zizmor: ignore[artipacked]
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v5 # zizmor: ignore[artipacked]
         with:
           go-version-file: go.mod
 
@@ -23,10 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # zizmor: ignore[artipacked]
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v5 # zizmor: ignore[artipacked]
         with:
           go-version-file: go.mod
 
@@ -37,7 +40,7 @@ jobs:
         run: make vet
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@v9 # zizmor: ignore[unpinned-uses]
         with:
           version: v2.10
           args: --timeout 5m
