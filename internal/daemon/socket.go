@@ -24,18 +24,17 @@ const (
 )
 
 type httpHandlers struct {
-	cfg      *config.Config
-	run      func(ctx context.Context, req RunRequest) (*RunResponse, error)
-	runBlock func(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error)
-	health   func() HealthResponse
-	store    *session.Store
+	cfg    *config.Config
+	run    func(ctx context.Context, req RunRequest) (*RunResponse, error)
+	health func() HealthResponse
+	store  *session.Store
 }
 
 func newRouter(h httpHandlers) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Post("/run", handleHTTPRunValidating(h))
-	r.Post("/run-block", handleHTTPRunBlockValidating(h))
+
 	r.Get("/health", handleHTTPHealth(h))
 	if h.store != nil {
 		r.Post("/session/register", handleHTTPSessionRegister(h.store))

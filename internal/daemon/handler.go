@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tta-lab/temenos/internal/config"
-	"github.com/tta-lab/temenos/internal/parse"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -42,29 +41,6 @@ type RunResponse struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
-}
-
-// RunBlockRequest is the POST /run-block body.
-type RunBlockRequest struct {
-	Block        string            `json:"block"`
-	StopOnError  *bool             `json:"stop_on_error,omitempty"` // default true
-	Env          map[string]string `json:"env,omitempty"`
-	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`
-	Network      *bool             `json:"network,omitempty"`
-	Timeout      int               `json:"timeout,omitempty"` // per-command timeout in seconds (matches /run semantics)
-}
-
-// CommandResult is one command's execution result within a block.
-type CommandResult struct {
-	Command  string `json:"command"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
-}
-
-// RunBlockResponse is the POST /run-block response.
-type RunBlockResponse struct {
-	Results []CommandResult `json:"results"`
 }
 
 // HealthResponse is the GET /health response.
@@ -163,71 +139,6 @@ func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req
 	}, nil
 }
 
-func handleRunBlock(
-	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunBlockRequest,
-) (*RunBlockResponse, error) {
-	if req.Block == "" {
-		return nil, fmt.Errorf("%w: block must not be empty", errHTTPValidation)
-	}
-
-	stopOnError := true
-	if req.StopOnError != nil {
-		stopOnError = *req.StopOnError
-	}
-
-	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
-	if err != nil {
-		return nil, err
-	}
-
-	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts, req.AllowedPaths)
-	cmds := parse.ParseBlock(req.Block)
-	results := make([]CommandResult, 0, len(cmds))
-
-	for _, cmd := range cmds {
-		if ctx.Err() != nil {
-			break
-		}
-
-		stdout, stderr, exitCode, execErr := execWithTimeout(ctx, sbx, req.Timeout, cmd.Args, execCfg)
-		if execErr != nil {
-			return nil, execErr
-		}
-
-		results = append(results, CommandResult{
-			Command:  cmd.Args,
-			Stdout:   stdout,
-			Stderr:   stderr,
-			ExitCode: exitCode,
-		})
-
-		if stopOnError && exitCode != 0 {
-			break
-		}
-	}
-
-	return &RunBlockResponse{Results: results}, nil
-}
-
-// execWithTimeout runs cmd in the sandbox with an optional per-call timeout.
-// When timeoutSecs > 0 a derived context with that deadline is used, and its
-// cancel is deferred — ensuring cleanup even if sbx.Exec panics.
-// When timeoutSecs == 0 the parent context is used directly.
-func execWithTimeout(
-	ctx context.Context,
-	sbx sandbox.Sandbox,
-	timeoutSecs int,
-	cmd string,
-	cfg *sandbox.ExecConfig,
-) (string, string, int, error) {
-	if timeoutSecs <= 0 {
-		return sbx.Exec(ctx, cmd, cfg)
-	}
-	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
-	defer cancel()
-	return sbx.Exec(cmdCtx, cmd, cfg)
-}
-
 func handleHealth(version string) HealthResponse {
 	return HealthResponse{
 		OK:       true,
@@ -264,12 +175,6 @@ func handleHTTPValidating[Req any, Resp any](fn func(context.Context, Req) (*Res
 // and returns HTTP 400 for validation errors, 500 for sandbox errors.
 func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
 	return handleHTTPValidating(h.run)
-}
-
-// handleHTTPRunBlockValidating decodes the run-block request, enforces a 1 MiB
-// body limit, and returns HTTP 400 for validation errors, 500 for sandbox errors.
-func handleHTTPRunBlockValidating(h httpHandlers) http.HandlerFunc {
-	return handleHTTPValidating(h.runBlock)
 }
 
 // SessionRegisterResponse is the POST /session/register response.

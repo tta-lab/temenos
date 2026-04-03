@@ -133,30 +133,6 @@ func TestTokenMiddleware_UnknownToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
-// TestHasValidPrefix_True verifies that a block with a '§' prefix returns true.
-func TestHasValidPrefix_True(t *testing.T) {
-	block := "§ echo hello"
-	assert.True(t, hasValidPrefix(block, "§"))
-}
-
-// TestHasValidPrefix_MultiLine verifies that a valid prefix is found even
-// when it appears after newlines.
-func TestHasValidPrefix_MultiLine(t *testing.T) {
-	block := "\n§ cmd"
-	assert.True(t, hasValidPrefix(block, "§"))
-}
-
-// TestHasValidPrefix_False verifies that a block without the '§' prefix returns false.
-func TestHasValidPrefix_False(t *testing.T) {
-	block := "just a regular string without prefix"
-	assert.False(t, hasValidPrefix(block, "§"))
-}
-
-// TestHasValidPrefix_Empty verifies that an empty block returns false.
-func TestHasValidPrefix_Empty(t *testing.T) {
-	assert.False(t, hasValidPrefix("", "§"))
-}
-
 // TestTruncateToken_Long verifies that a 64-character token is truncated
 // to the first 8 characters.
 func TestTruncateToken_Long(t *testing.T) {
@@ -247,20 +223,6 @@ func TestBaselineMountsInHandler_WriteOnly(t *testing.T) {
 	require.Len(t, mounts, 1)
 	assert.Equal(t, "/only-write", mounts[0].Source)
 	assert.False(t, mounts[0].ReadOnly)
-}
-
-// TestHasValidPrefix_LeadingWhitespace verifies that lines with leading
-// whitespace before the prefix are still recognized.
-func TestHasValidPrefix_LeadingWhitespace(t *testing.T) {
-	block := "   § echo hello"
-	assert.True(t, hasValidPrefix(block, "§"))
-}
-
-// TestHasValidPrefix_OnlyWhitespace verifies that a block with only
-// whitespace lines returns false.
-func TestHasValidPrefix_OnlyWhitespace(t *testing.T) {
-	block := "   \n\t  \n"
-	assert.False(t, hasValidPrefix(block, "§"))
 }
 
 // TestTruncateToken_EightChars verifies that an exactly 8-character token

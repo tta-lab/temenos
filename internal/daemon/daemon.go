@@ -100,9 +100,6 @@ func Run(version string) error {
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
 			return handleRun(ctx, cfg, sbx, req)
 		},
-		runBlock: func(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error) {
-			return handleRunBlock(ctx, cfg, sbx, req)
-		},
 		health: func() HealthResponse { return handleHealth(version) },
 		store:  store,
 	})
