@@ -153,21 +153,3 @@ func TestBuildMounts_BaselinePrecedesRequestPaths(t *testing.T) {
 	}
 	assert.True(t, foundRequest, "request path must appear after baseline mounts")
 }
-
-func TestHandleRunBlock_WorkingDirIsPerRequestPath(t *testing.T) {
-	sbx := &captureSandbox{}
-	cfg := &config.Config{
-		AllowRead:  []string{"/baseline/read"},
-		AllowWrite: []string{"/baseline/write"},
-	}
-	stop := true
-	req := RunBlockRequest{
-		Block:        "§ pwd",
-		StopOnError:  &stop,
-		AllowedPaths: []AllowedPath{{Path: "/Users/neil/myproject"}},
-	}
-	_, err := handleRunBlock(t.Context(), cfg, sbx, req)
-	require.NoError(t, err)
-	require.NotNil(t, sbx.lastCfg)
-	assert.Equal(t, "/Users/neil/myproject", sbx.lastCfg.WorkingDir)
-}

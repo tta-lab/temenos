@@ -53,6 +53,6 @@ Seatbelt policies are embedded via `//go:embed` from three `.sbpl` files in `san
 - Daemon creates a fresh temp HOME dir per seatbelt execution and cleans it up after
 - Output truncated at 64KB per stream
 - Request body capped at 1 MiB
-- Default execution timeout: 30s (daemon sets 120s)
+- Default execution timeout: 120s
 - Version injected via `-ldflags` at build time (`cli.Version`)
 - `gocyclo` max complexity: 15, line length limit: 120

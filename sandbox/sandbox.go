@@ -12,7 +12,11 @@ import (
 	"cmp"
 )
 
-const maxOutputBytes = 64 * 1024 // 64KB output truncation
+const (
+	maxOutputBytes     = 64 * 1024         // 64KB output truncation
+	DefaultTimeoutSecs = 120               // default command execution timeout
+	DefaultTimeout     = 120 * time.Second // default timeout as Duration
+)
 
 // Sandbox executes commands in an isolated environment.
 type Sandbox interface {

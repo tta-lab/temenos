@@ -162,36 +162,6 @@ func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResponse, error) 
 	return postJSON[RunRequest, RunResponse](ctx, c, "/run", req)
 }
 
-// RunBlockRequest is the body for POST /run-block.
-type RunBlockRequest struct {
-	Block        string            `json:"block"`
-	StopOnError  *bool             `json:"stop_on_error,omitempty"`
-	Env          map[string]string `json:"env,omitempty"`
-	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`
-	Network      *bool             `json:"network,omitempty"`
-	Timeout      int               `json:"timeout,omitempty"` // per-command timeout in seconds
-}
-
-// CommandResult is one command's execution result within a block.
-type CommandResult struct {
-	Command  string `json:"command"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
-}
-
-// RunBlockResponse is the response from POST /run-block.
-type RunBlockResponse struct {
-	Results []CommandResult `json:"results"`
-}
-
-// RunBlock sends a block of text to the temenos daemon for multi-command
-// sandboxed execution. The daemon parses commands using the given prefix
-// and executes each in a separate sandbox invocation.
-func (c *Client) RunBlock(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error) {
-	return postJSON[RunBlockRequest, RunBlockResponse](ctx, c, "/run-block", req)
-}
-
 // Health checks if the daemon is running and returns any error if not.
 func (c *Client) Health(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)

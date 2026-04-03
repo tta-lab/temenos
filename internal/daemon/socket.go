@@ -15,27 +15,27 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
+	"github.com/tta-lab/temenos/sandbox"
 )
 
 const (
 	serverReadTimeout  = 30 * time.Second
-	serverWriteTimeout = 120 * time.Second
+	serverWriteTimeout = sandbox.DefaultTimeout
 	networkUnix        = "unix"
 )
 
 type httpHandlers struct {
-	cfg      *config.Config
-	run      func(ctx context.Context, req RunRequest) (*RunResponse, error)
-	runBlock func(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error)
-	health   func() HealthResponse
-	store    *session.Store
+	cfg    *config.Config
+	run    func(ctx context.Context, req RunRequest) (*RunResponse, error)
+	health func() HealthResponse
+	store  *session.Store
 }
 
 func newRouter(h httpHandlers) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Post("/run", handleHTTPRunValidating(h))
-	r.Post("/run-block", handleHTTPRunBlockValidating(h))
+
 	r.Get("/health", handleHTTPHealth(h))
 	if h.store != nil {
 		r.Post("/session/register", handleHTTPSessionRegister(h.store))

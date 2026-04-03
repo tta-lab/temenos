@@ -65,7 +65,7 @@ func Run(version string) error {
 	}
 
 	sbx := sandbox.New(sandbox.Options{
-		Timeout:          sandbox.Seconds(120),
+		Timeout:          sandbox.DefaultTimeout,
 		AllowUnsandboxed: false,
 		MemoryLimitMB:    memLimitMB,
 		RequireCgroup:    parseRequireCgroup(),
@@ -99,9 +99,6 @@ func Run(version string) error {
 		cfg: cfg,
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
 			return handleRun(ctx, cfg, sbx, req)
-		},
-		runBlock: func(ctx context.Context, req RunBlockRequest) (*RunBlockResponse, error) {
-			return handleRunBlock(ctx, cfg, sbx, req)
 		},
 		health: func() HealthResponse { return handleHealth(version) },
 		store:  store,

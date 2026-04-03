@@ -131,7 +131,7 @@ The Docker image includes [Organon](https://github.com/tta-lab/organon) binaries
 
 - Output truncated at 64KB per stream (stdout/stderr)
 - Request body capped at 1 MiB
-- Default execution timeout: 30s
+- Default execution timeout: 120s
 
 ## Development
 

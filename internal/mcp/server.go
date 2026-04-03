@@ -7,12 +7,10 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/tta-lab/temenos/internal/config"
-	"github.com/tta-lab/temenos/internal/parse"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -22,16 +20,15 @@ type contextKey struct{}
 var sessionKey = contextKey{}
 
 const (
-	defaultTimeout = 120
+	defaultTimeout = sandbox.DefaultTimeoutSecs
 )
 
 var tokenRegex = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // bashInput defines the JSON schema for the bash tool input.
 type bashInput struct {
-	Command     string `json:"command" jsonschema:"Block of commands, each prefixed with § on its own line"`
-	StopOnError *bool  `json:"stop_on_error,omitempty" jsonschema:"Stop on first non-zero exit (default: true)"`
-	Timeout     int    `json:"timeout,omitempty" jsonschema:"Per-command timeout in seconds (default: 120)"`
+	Command string `json:"command" jsonschema:"Shell command to execute"`
+	Timeout int    `json:"timeout,omitempty" jsonschema:"Timeout in seconds (default: 120)"`
 }
 
 // CommandResult represents the result of a single command execution.
@@ -114,21 +111,17 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session) {
 	bashTool := &mcp.Tool{
 		Name:        "bash",
-		Description: "Execute shell commands in the sandboxed environment",
+		Description: "Execute a shell command in the sandboxed environment",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{
 					"type":        "string",
-					"description": "Block of commands, each prefixed with § on its own line",
-				},
-				"stop_on_error": map[string]any{
-					"type":        "boolean",
-					"description": "Stop on first non-zero exit (default: true)",
+					"description": "Shell command to execute",
 				},
 				"timeout": map[string]any{
 					"type":        "integer",
-					"description": "Per-command timeout in seconds (default: 120)",
+					"description": "Timeout in seconds (default: 120)",
 				},
 			},
 			"required": []string{"command"},
@@ -162,54 +155,36 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 // bashHandler returns the tool handler for the bash tool.
 func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session) mcp.ToolHandlerFor[bashInput, any] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input bashInput) (*mcp.CallToolResult, any, error) {
-		// Validate command has at least one line starting with '§'
-		if !hasValidPrefix(input.Command, "§") {
+		if input.Command == "" {
 			return &mcp.CallToolResult{
 				IsError: true,
-				Content: []mcp.Content{&mcp.TextContent{Text: "command must use § prefix lines"}},
+				Content: []mcp.Content{&mcp.TextContent{Text: "command must not be empty"}},
 			}, struct{}{}, nil
 		}
 
 		execCfg := buildExecConfig(cfg, sess)
-
-		// Parse commands
-		cmds := parse.ParseBlock(input.Command)
-
-		stopOnError := true
-		if input.StopOnError != nil {
-			stopOnError = *input.StopOnError
-		}
 
 		timeout := defaultTimeout
 		if input.Timeout > 0 {
 			timeout = input.Timeout
 		}
 
-		var results []CommandResult
-		for _, cmd := range cmds {
-			// Create a timeout context for each command
-			cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-			stdout, stderr, exitCode, err := sbx.Exec(cmdCtx, cmd.Args, execCfg)
-			cancel()
+		cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		defer cancel()
 
-			results = append(results, CommandResult{
-				Command:  cmd.Args,
-				Stdout:   stdout,
-				Stderr:   stderr,
-				ExitCode: exitCode,
-			})
-
-			if err != nil {
-				results[len(results)-1].Stderr = err.Error()
-				if stopOnError {
-					break
-				}
-			} else if stopOnError && exitCode != 0 {
-				break
-			}
+		stdout, stderr, exitCode, err := sbx.Exec(cmdCtx, input.Command, execCfg)
+		if err != nil {
+			stderr = err.Error()
 		}
 
-		resultJSON, err := json.Marshal(results)
+		result := CommandResult{
+			Command:  input.Command,
+			Stdout:   stdout,
+			Stderr:   stderr,
+			ExitCode: exitCode,
+		}
+
+		resultJSON, err := json.Marshal(result)
 		if err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,
@@ -220,15 +195,4 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 			Content: []mcp.Content{&mcp.TextContent{Text: string(resultJSON)}},
 		}, struct{}{}, nil
 	}
-}
-
-// hasValidPrefix checks if the block contains at least one line with the given prefix.
-func hasValidPrefix(block string, prefix string) bool { //nolint:unparam
-	for _, line := range strings.Split(block, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, prefix) {
-			return true
-		}
-	}
-	return false
 }
