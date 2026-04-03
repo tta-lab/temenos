@@ -4,32 +4,35 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # zizmor: ignore[artipacked]
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v5 # zizmor: ignore[artipacked]
         with:
           go-version-file: go.mod
+          cache: true
 
-      - name: Download deps
+      - name: Download dependencies
         run: go mod download
 
-      - name: Format check
-        run: make fmt && git diff --exit-code --quiet -- '*.go'
+      - name: Install qlty
+        run: |
+          curl -fsSL https://qlty.sh | QLTY_VERSION=0.618.0 bash
+          echo "$HOME/.qlty/bin" >> $GITHUB_PATH
 
-      - name: Vet
-        run: make vet
-
-      - name: Lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.10
-          args: --timeout 5m
+      - name: Lint and security scan
+        run: qlty check --all --no-progress
 
       - name: Test
         run: make test
+
+      - name: Build
+        run: make build

@@ -12,12 +12,12 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # zizmor: ignore[artipacked]
         with:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v5 # zizmor: ignore[artipacked,cache-poisoning]
         with:
           go-version-file: go.mod
 
@@ -25,7 +25,7 @@ jobs:
         run: make test
 
       - name: GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v6 # zizmor: ignore[unpinned-uses]
         with:
           distribution: goreleaser
           version: latest

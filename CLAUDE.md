@@ -14,12 +14,20 @@ make test           # run all tests (go test -v ./...)
 make lint           # golangci-lint (v2, config in .golangci.yml)
 make fmt            # gofmt -w -s
 make vet            # go vet
-make ci             # fmt + vet + lint + test + build
+make qlty           # run qlty check (lint + security scan)
+make install-hooks  # install qlty git hooks
+make ci             # fmt + tidy + qlty + test + build
 make install        # go install ./cmd/temenos
 go test -v -run TestFoo ./sandbox/  # run a single test
 ```
 
-Pre-commit hooks (lefthook): fmt check, vet, lint — run in parallel.
+## Git Hooks (qlty)
+
+- **Pre-commit:** `qlty fmt` — auto-formats staged Go files (gofmt + goimports)
+- **Pre-push:** `qlty check` — runs golangci-lint + trufflehog + osv-scanner + zizmor
+- **Install:** `make install-hooks` or `qlty githooks install`
+
+Qlty config: `.qlty/qlty.toml`
 
 ## Architecture
 
