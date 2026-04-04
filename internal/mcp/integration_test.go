@@ -110,8 +110,7 @@ func TestAuth_RegisteredToken(t *testing.T) {
 
 	// Register a valid session
 	sess, err := store.Register(session.RegisterRequest{
-		Agent:  "test-agent",
-		Access: "rw",
+		Agent: "test-agent",
 	})
 	require.NoError(t, err)
 
@@ -130,8 +129,7 @@ func TestAuth_ExpiredSession(t *testing.T) {
 
 	// Register a session
 	sess, err := store.Register(session.RegisterRequest{
-		Agent:  "test-agent",
-		Access: "rw",
+		Agent: "test-agent",
 	})
 	require.NoError(t, err)
 
@@ -151,8 +149,7 @@ func TestAuth_SessionDeletedThenUsed(t *testing.T) {
 
 	// Register a session
 	sess, err := store.Register(session.RegisterRequest{
-		Agent:  "test-agent",
-		Access: "rw",
+		Agent: "test-agent",
 	})
 	require.NoError(t, err)
 

@@ -18,8 +18,8 @@ func TestRegister(t *testing.T) {
 
 	req := RegisterRequest{
 		Agent:      "test-agent",
-		Access:     "rw",
 		WritePaths: []string{"/tmp/write1", "/tmp/write2"},
+		ReadPaths:  []string{"/tmp/read1"},
 	}
 
 	session, err := store.Register(req)
@@ -32,8 +32,8 @@ func TestRegister(t *testing.T) {
 
 	// Session fields match request
 	assert.Equal(t, req.Agent, session.Agent)
-	assert.Equal(t, req.Access, session.Access)
 	assert.Equal(t, req.WritePaths, session.WritePaths)
+	assert.Equal(t, req.ReadPaths, session.ReadPaths)
 
 	// CreatedAt and ExpiresAt are set
 	assert.False(t, session.CreatedAt.IsZero())
@@ -53,7 +53,7 @@ func TestGet(t *testing.T) {
 	assert.Nil(t, result)
 
 	// Register and retrieve
-	req := RegisterRequest{Agent: "test-agent", Access: "ro"}
+	req := RegisterRequest{Agent: "test-agent", ReadPaths: []string{"/tmp/read"}}
 	session, err := store.Register(req)
 	require.NoError(t, err)
 
@@ -67,7 +67,7 @@ func TestGet(t *testing.T) {
 func TestGetExpired(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
 
-	req := RegisterRequest{Agent: "test-agent", Access: "ro"}
+	req := RegisterRequest{Agent: "test-agent"}
 	session, err := store.Register(req)
 	require.NoError(t, err)
 
@@ -84,7 +84,7 @@ func TestDelete(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
 
 	// Register a session
-	req := RegisterRequest{Agent: "test-agent", Access: "rw"}
+	req := RegisterRequest{Agent: "test-agent", WritePaths: []string{"/tmp/write"}}
 	session, err := store.Register(req)
 	require.NoError(t, err)
 
@@ -110,9 +110,9 @@ func TestList(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
 
 	// Register two sessions
-	session1, err := store.Register(RegisterRequest{Agent: "agent-1", Access: "ro"})
+	session1, err := store.Register(RegisterRequest{Agent: "agent-1", ReadPaths: []string{"/tmp/read"}})
 	require.NoError(t, err)
-	session2, err := store.Register(RegisterRequest{Agent: "agent-2", Access: "rw"})
+	session2, err := store.Register(RegisterRequest{Agent: "agent-2", WritePaths: []string{"/tmp/write"}})
 	require.NoError(t, err)
 
 	// List should return both
@@ -134,9 +134,9 @@ func TestPersistence(t *testing.T) {
 
 	// Create first store and register sessions
 	store1 := NewStore(filePath)
-	_, err := store1.Register(RegisterRequest{Agent: "agent-1", Access: "ro"})
+	_, err := store1.Register(RegisterRequest{Agent: "agent-1", ReadPaths: []string{"/tmp/read"}})
 	require.NoError(t, err)
-	_, err = store1.Register(RegisterRequest{Agent: "agent-2", Access: "rw"})
+	_, err = store1.Register(RegisterRequest{Agent: "agent-2", WritePaths: []string{"/tmp/write"}})
 	require.NoError(t, err)
 
 	// Create new store from same file and load
@@ -154,7 +154,7 @@ func TestAtomicWrite(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "sessions.json")
 	store := NewStore(filePath)
 
-	_, err := store.Register(RegisterRequest{Agent: "test-agent", Access: "ro"})
+	_, err := store.Register(RegisterRequest{Agent: "test-agent"})
 	require.NoError(t, err)
 
 	// File should exist with 0o600 permissions
@@ -171,14 +171,13 @@ func TestLoadFromDiskSkipsExpired(t *testing.T) {
 
 	// Create and populate a store
 	store := NewStore(filePath)
-	session, err := store.Register(RegisterRequest{Agent: "active-agent", Access: "ro"})
+	session, err := store.Register(RegisterRequest{Agent: "active-agent"})
 	require.NoError(t, err)
 
 	// Write an expired session directly to the file
 	expiredSession := &Session{
 		Token:     "expired-token-1234567890123456789012345678901234567890123456",
 		Agent:     "expired-agent",
-		Access:    "ro",
 		ExpiresAt: time.Now().Add(-1 * time.Hour), // Expired
 	}
 	store.sessions[expiredSession.Token] = expiredSession
@@ -207,7 +206,6 @@ func TestPruneStaleRemovesMissingWritePaths(t *testing.T) {
 	// Register session with non-existent WritePaths
 	session, err := store.Register(RegisterRequest{
 		Agent:      "test-agent",
-		Access:     "rw",
 		WritePaths: []string{"/nonexistent/path/12345"},
 	})
 	require.NoError(t, err)
@@ -228,7 +226,7 @@ func TestPruneStaleRemovesExpired(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "sessions.json")
 	store := NewStore(filePath)
 
-	session, err := store.Register(RegisterRequest{Agent: "test-agent", Access: "ro"})
+	session, err := store.Register(RegisterRequest{Agent: "test-agent"})
 	require.NoError(t, err)
 
 	// Manually expire the session
@@ -253,7 +251,7 @@ func TestRegisterDeleteReloadRoundTrip(t *testing.T) {
 
 	// Create store and register session
 	store1 := NewStore(filePath)
-	session, err := store1.Register(RegisterRequest{Agent: "test-agent", Access: "ro"})
+	session, err := store1.Register(RegisterRequest{Agent: "test-agent"})
 	require.NoError(t, err)
 
 	// Verify it exists
@@ -279,8 +277,8 @@ func TestSessionJSONFormat(t *testing.T) {
 
 	_, err := store.Register(RegisterRequest{
 		Agent:      "my-agent",
-		Access:     "rw",
-		WritePaths: []string{"/custom/path"},
+		WritePaths: []string{"/custom/write"},
+		ReadPaths:  []string{"/custom/read"},
 	})
 	require.NoError(t, err)
 
@@ -297,10 +295,79 @@ func TestSessionJSONFormat(t *testing.T) {
 	for token, session := range sessions {
 		assert.Len(t, token, 64)
 		assert.Equal(t, "my-agent", session.Agent)
-		assert.Equal(t, "rw", session.Access)
-		assert.Equal(t, []string{"/custom/path"}, session.WritePaths)
+		assert.Equal(t, []string{"/custom/write"}, session.WritePaths)
+		assert.Equal(t, []string{"/custom/read"}, session.ReadPaths)
 		assert.False(t, session.CreatedAt.IsZero())
 		assert.False(t, session.ExpiresAt.IsZero())
+	}
+}
+
+// TestPruneStaleRemovesMissingReadPaths verifies sessions with non-existent ReadPaths are removed.
+func TestPruneStaleRemovesMissingReadPaths(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "sessions.json")
+	store := NewStore(filePath)
+
+	// Register session with non-existent ReadPaths (no WritePaths)
+	session, err := store.Register(RegisterRequest{
+		Agent:     "test-agent",
+		ReadPaths: []string{"/nonexistent/read/path/12345"},
+	})
+	require.NoError(t, err)
+
+	// Verify session exists
+	_, inMap := store.sessions[session.Token]
+	require.True(t, inMap, "session should be in map before pruning")
+
+	// Prune should remove it
+	store.PruneStale()
+
+	// Session should be gone
+	assert.Nil(t, store.Get(session.Token))
+}
+
+// TestPruneStaleRemovesMixedStalePaths verifies that a session with valid WritePaths
+// but missing ReadPaths is still pruned.
+func TestPruneStaleRemovesMixedStalePaths(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "sessions.json")
+	store := NewStore(filePath)
+
+	validDir := t.TempDir() // exists
+
+	session, err := store.Register(RegisterRequest{
+		Agent:      "test-agent",
+		WritePaths: []string{validDir},
+		ReadPaths:  []string{"/nonexistent/read/path/12345"},
+	})
+	require.NoError(t, err)
+
+	_, inMap := store.sessions[session.Token]
+	require.True(t, inMap, "session should be in map before pruning")
+
+	store.PruneStale()
+
+	assert.Nil(t, store.Get(session.Token))
+}
+
+// TestRegisterValidation verifies that Register rejects invalid paths.
+func TestRegisterValidation(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	tests := []struct {
+		name string
+		req  RegisterRequest
+	}{
+		{"empty write path", RegisterRequest{Agent: "a", WritePaths: []string{""}}},
+		{"relative write path", RegisterRequest{Agent: "a", WritePaths: []string{"relative/path"}}},
+		{"empty read path", RegisterRequest{Agent: "a", ReadPaths: []string{""}}},
+		{"relative read path", RegisterRequest{Agent: "a", ReadPaths: []string{"relative/path"}}},
+		{"overlapping paths", RegisterRequest{Agent: "a", WritePaths: []string{"/shared"}, ReadPaths: []string{"/shared"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := store.Register(tt.req)
+			require.Error(t, err, "Register should reject: %s", tt.name)
+		})
 	}
 }
 

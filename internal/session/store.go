@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,14 +13,19 @@ import (
 	"time"
 )
 
+// ErrValidation is returned by Register when request fields fail validation.
+// Callers (e.g. HTTP handlers) can check errors.Is(err, ErrValidation) to
+// distinguish client input errors from internal failures.
+var ErrValidation = errors.New("session validation error")
+
 const defaultTTL = 8 * time.Hour
 
 // Session represents a sandbox session token.
 type Session struct {
 	Token      string    `json:"token"`
 	Agent      string    `json:"agent"`
-	Access     string    `json:"access"`      // "rw" or "ro"
-	WritePaths []string  `json:"write_paths"` // additional write paths beyond config baseline
+	WritePaths []string  `json:"write_paths"` // paths mounted read-write in the sandbox
+	ReadPaths  []string  `json:"read_paths"`  // paths mounted read-only in the sandbox
 	CreatedAt  time.Time `json:"created_at"`
 	ExpiresAt  time.Time `json:"expires_at"` // default: CreatedAt + 8h
 }
@@ -26,8 +33,8 @@ type Session struct {
 // RegisterRequest is the request to create a new session.
 type RegisterRequest struct {
 	Agent      string   `json:"agent"`
-	Access     string   `json:"access"` // "rw" or "ro"
-	WritePaths []string `json:"write_paths,omitempty"`
+	WritePaths []string `json:"write_paths,omitempty"` // paths to mount read-write
+	ReadPaths  []string `json:"read_paths,omitempty"`  // paths to mount read-only
 }
 
 // Store manages session tokens in memory with disk persistence.
@@ -89,8 +96,39 @@ func (s *Store) persist() error {
 	return s.persistLocked()
 }
 
+// validatePaths returns an ErrValidation-wrapped error if any path is empty,
+// non-absolute, or if WritePaths and ReadPaths overlap (conflicting mounts).
+func validatePaths(write, read []string) error {
+	seen := make(map[string]struct{}, len(write))
+	for _, p := range write {
+		if p == "" {
+			return fmt.Errorf("%w: write_paths: empty string is not a valid path", ErrValidation)
+		}
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("%w: write_paths: path must be absolute: %q", ErrValidation, p)
+		}
+		seen[filepath.Clean(p)] = struct{}{}
+	}
+	for _, p := range read {
+		if p == "" {
+			return fmt.Errorf("%w: read_paths: empty string is not a valid path", ErrValidation)
+		}
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("%w: read_paths: path must be absolute: %q", ErrValidation, p)
+		}
+		if _, dup := seen[filepath.Clean(p)]; dup {
+			return fmt.Errorf("%w: read_paths: path %q also appears in write_paths (conflicting mounts)", ErrValidation, p)
+		}
+	}
+	return nil
+}
+
 // Register creates a new session with the given request.
 func (s *Store) Register(req RegisterRequest) (*Session, error) {
+	if err := validatePaths(req.WritePaths, req.ReadPaths); err != nil {
+		return nil, err
+	}
+
 	token, err := generateToken()
 	if err != nil {
 		return nil, err
@@ -100,8 +138,8 @@ func (s *Store) Register(req RegisterRequest) (*Session, error) {
 	session := &Session{
 		Token:      token,
 		Agent:      req.Agent,
-		Access:     req.Access,
 		WritePaths: req.WritePaths,
+		ReadPaths:  req.ReadPaths,
 		CreatedAt:  now,
 		ExpiresAt:  now.Add(s.defaultTTL),
 	}
@@ -188,7 +226,8 @@ func (s *Store) LoadFromDisk() error {
 	return nil
 }
 
-// PruneStale removes sessions where WritePaths dirs don't exist or ExpiresAt has passed.
+// PruneStale removes sessions where any WritePaths or ReadPaths directory no longer
+// exists, or where ExpiresAt has passed.
 func (s *Store) PruneStale() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -204,9 +243,17 @@ func (s *Store) PruneStale() {
 		}
 
 		stale := false
-		for _, path := range session.WritePaths {
+		for _, path := range append(session.WritePaths, session.ReadPaths...) {
 			info, err := os.Stat(path)
-			if err != nil || !info.IsDir() {
+			if err != nil {
+				slog.Warn("session store: pruning session — path stat failed",
+					"agent", session.Agent, "path", path, "err", err)
+				stale = true
+				break
+			}
+			if !info.IsDir() {
+				slog.Warn("session store: pruning session — path is not a directory",
+					"agent", session.Agent, "path", path)
 				stale = true
 				break
 			}
