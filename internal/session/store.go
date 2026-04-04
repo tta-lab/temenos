@@ -17,8 +17,8 @@ const defaultTTL = 8 * time.Hour
 type Session struct {
 	Token      string    `json:"token"`
 	Agent      string    `json:"agent"`
-	Access     string    `json:"access"`      // "rw" or "ro"
-	WritePaths []string  `json:"write_paths"` // additional write paths beyond config baseline
+	WritePaths []string  `json:"write_paths"` // paths mounted read-write in the sandbox
+	ReadPaths  []string  `json:"read_paths"`  // paths mounted read-only in the sandbox
 	CreatedAt  time.Time `json:"created_at"`
 	ExpiresAt  time.Time `json:"expires_at"` // default: CreatedAt + 8h
 }
@@ -26,8 +26,8 @@ type Session struct {
 // RegisterRequest is the request to create a new session.
 type RegisterRequest struct {
 	Agent      string   `json:"agent"`
-	Access     string   `json:"access"` // "rw" or "ro"
-	WritePaths []string `json:"write_paths,omitempty"`
+	WritePaths []string `json:"write_paths,omitempty"` // paths to mount read-write
+	ReadPaths  []string `json:"read_paths,omitempty"`  // paths to mount read-only
 }
 
 // Store manages session tokens in memory with disk persistence.
@@ -100,8 +100,8 @@ func (s *Store) Register(req RegisterRequest) (*Session, error) {
 	session := &Session{
 		Token:      token,
 		Agent:      req.Agent,
-		Access:     req.Access,
 		WritePaths: req.WritePaths,
+		ReadPaths:  req.ReadPaths,
 		CreatedAt:  now,
 		ExpiresAt:  now.Add(s.defaultTTL),
 	}
@@ -204,7 +204,7 @@ func (s *Store) PruneStale() {
 		}
 
 		stale := false
-		for _, path := range session.WritePaths {
+		for _, path := range append(session.WritePaths, session.ReadPaths...) {
 			info, err := os.Stat(path)
 			if err != nil || !info.IsDir() {
 				stale = true

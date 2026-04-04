@@ -24,7 +24,7 @@ func TestHandleHTTPSessionRegister_ValidRequest(t *testing.T) {
 	store := makeSessionStore(t)
 	h := handleHTTPSessionRegister(store)
 
-	body, _ := json.Marshal(session.RegisterRequest{Agent: "test-agent", Access: "rw"})
+	body, _ := json.Marshal(session.RegisterRequest{Agent: "test-agent", WritePaths: []string{"/tmp/write"}})
 	req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -44,7 +44,7 @@ func TestHandleHTTPSessionRegister_MissingAgent(t *testing.T) {
 	store := makeSessionStore(t)
 	h := handleHTTPSessionRegister(store)
 
-	body, _ := json.Marshal(session.RegisterRequest{Agent: "", Access: "rw"})
+	body, _ := json.Marshal(session.RegisterRequest{Agent: ""})
 	req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -59,29 +59,10 @@ func TestHandleHTTPSessionRegister_MissingAgent(t *testing.T) {
 	assert.Contains(t, errResp["error"], "agent")
 }
 
-func TestHandleHTTPSessionRegister_MissingAccess(t *testing.T) {
-	store := makeSessionStore(t)
-	h := handleHTTPSessionRegister(store)
-
-	body, _ := json.Marshal(session.RegisterRequest{Agent: "test-agent", Access: ""})
-	req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-
-	h.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var errResp map[string]string
-	err := json.NewDecoder(rec.Body).Decode(&errResp)
-	require.NoError(t, err)
-	assert.Contains(t, errResp["error"], "access")
-}
-
 // --- handleHTTPSessionDelete ---
 
-func registerSession(t *testing.T, store *session.Store, agent, access string) string {
-	s, err := store.Register(session.RegisterRequest{Agent: agent, Access: access})
+func registerSession(t *testing.T, store *session.Store, agent string) string {
+	s, err := store.Register(session.RegisterRequest{Agent: agent})
 	require.NoError(t, err)
 	return s.Token
 }
@@ -90,7 +71,7 @@ func TestHandleHTTPSessionDelete_KnownToken(t *testing.T) {
 	store := makeSessionStore(t)
 	h := handleHTTPSessionDelete(store)
 
-	token := registerSession(t, store, "test-agent", "rw")
+	token := registerSession(t, store, "test-agent")
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("token", token)
@@ -122,7 +103,7 @@ func TestHandleHTTPSessionDelete_AlreadyDeletedToken(t *testing.T) {
 	store := makeSessionStore(t)
 	h := handleHTTPSessionDelete(store)
 
-	token := registerSession(t, store, "test-agent", "rw")
+	token := registerSession(t, store, "test-agent")
 
 	// Delete once
 	rctx := chi.NewRouteContext()
@@ -167,7 +148,7 @@ func TestHandleHTTPSessionList_AfterRegister(t *testing.T) {
 	store := makeSessionStore(t)
 	h := handleHTTPSessionList(store)
 
-	registerSession(t, store, "agent-1", "rw")
+	registerSession(t, store, "agent-1")
 
 	req := httptest.NewRequest(http.MethodGet, "/session/list", nil)
 	rec := httptest.NewRecorder()
@@ -181,7 +162,6 @@ func TestHandleHTTPSessionList_AfterRegister(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "agent-1", sessions[0].Agent)
-	assert.Equal(t, "rw", sessions[0].Access)
 }
 
 // --- Full round trip ---
@@ -193,7 +173,7 @@ func TestHandleHTTPSession_RoundTrip(t *testing.T) {
 	listH := handleHTTPSessionList(store)
 
 	// Register
-	body, _ := json.Marshal(session.RegisterRequest{Agent: "roundtrip-agent", Access: "ro"})
+	body, _ := json.Marshal(session.RegisterRequest{Agent: "roundtrip-agent"})
 	regReq := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
 	regReq.Header.Set("Content-Type", "application/json")
 	regRec := httptest.NewRecorder()

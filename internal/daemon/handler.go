@@ -199,7 +199,7 @@ func handleSessionList(store *session.Store) []session.Session {
 }
 
 // handleHTTPSessionRegister handles POST /session/register.
-// Returns 400 if agent or access field is empty.
+// Returns 400 if agent field is empty.
 func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -210,10 +210,6 @@ func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
 		}
 		if req.Agent == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent must not be empty"})
-			return
-		}
-		if req.Access != "rw" && req.Access != "ro" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "access must be \"rw\" or \"ro\""})
 			return
 		}
 		resp, err := handleSessionRegister(store, req)

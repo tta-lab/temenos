@@ -132,19 +132,23 @@ func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, 
 }
 
 // buildExecConfig constructs the sandbox ExecConfig for a bash tool invocation.
-// Baseline mounts from config are prepended; rw-session WritePaths are appended
-// as writable mounts; ancestor MetadataOnly mounts are injected for stat access.
+// Baseline mounts from config are prepended; session WritePaths are appended as
+// writable mounts; session ReadPaths are appended as read-only mounts; ancestor
+// MetadataOnly mounts are injected for stat access.
 func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecConfig {
 	mounts := cfg.BaselineMounts()
-	if sess != nil && sess.Access == "rw" {
+	if sess != nil {
 		for _, p := range sess.WritePaths {
 			mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: false})
+		}
+		for _, p := range sess.ReadPaths {
+			mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: true})
 		}
 	}
 	mounts = sandbox.AddAncestorMounts(mounts)
 
 	workDir := os.TempDir()
-	if sess != nil && sess.Access == "rw" && len(sess.WritePaths) > 0 {
+	if sess != nil && len(sess.WritePaths) > 0 {
 		workDir = sess.WritePaths[0]
 	} else if len(cfg.AllowWrite) > 0 {
 		workDir = cfg.AllowWrite[0]

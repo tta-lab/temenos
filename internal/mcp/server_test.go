@@ -23,7 +23,7 @@ func makeStore(t *testing.T) *session.Store {
 
 // makeToken registers a session and returns its token.
 func makeToken(t *testing.T, store *session.Store) string {
-	sess, err := store.Register(session.RegisterRequest{Agent: "test", Access: "rw"})
+	sess, err := store.Register(session.RegisterRequest{Agent: "test", WritePaths: []string{"/tmp/write"}})
 	require.NoError(t, err)
 	return sess.Token
 }
@@ -253,45 +253,70 @@ func TestNewMCPHandler_ReturnsHandler(t *testing.T) {
 	assert.NotNil(t, handler)
 }
 
-// TestBuildExecConfig_ReadOnlySession_NoWriteMounts verifies that an "ro" session
-// does not gain write access to its WritePaths. This is a regression test for the
-// security fix that gates WritePaths mounts on sess.Access == "rw".
-func TestBuildExecConfig_ReadOnlySession_NoWriteMounts(t *testing.T) {
-	cfg := &config.Config{
-		AllowWrite: []string{"/config-write"},
-	}
-	roSess := &session.Session{
-		Access:     "ro",
-		WritePaths: []string{"/session-write"},
-	}
-
-	execCfg := buildExecConfig(cfg, roSess)
-
-	for _, m := range execCfg.MountDirs {
-		assert.NotEqual(t, "/session-write", m.Source,
-			"ro session must not gain access to WritePaths")
-	}
-}
-
-// TestBuildExecConfig_ReadWriteSession_HasWriteMounts verifies that an "rw" session
-// does have its WritePaths included as writable mounts.
-func TestBuildExecConfig_ReadWriteSession_HasWriteMounts(t *testing.T) {
+// TestBuildExecConfig_WritePaths_MountedReadWrite verifies that session WritePaths
+// are mounted as writable.
+func TestBuildExecConfig_WritePaths_MountedReadWrite(t *testing.T) {
 	cfg := &config.Config{}
-	rwSess := &session.Session{
-		Access:     "rw",
+	sess := &session.Session{
 		WritePaths: []string{"/session-write"},
 	}
 
-	execCfg := buildExecConfig(cfg, rwSess)
+	execCfg := buildExecConfig(cfg, sess)
 
 	var found bool
 	for _, m := range execCfg.MountDirs {
 		if m.Source == "/session-write" {
 			found = true
-			assert.False(t, m.ReadOnly, "rw session WritePath must be a writable mount")
+			assert.False(t, m.ReadOnly, "WritePath must be a writable mount")
 		}
 	}
-	assert.True(t, found, "rw session WritePath must appear in mounts")
+	assert.True(t, found, "WritePath must appear in mounts")
+}
+
+// TestBuildExecConfig_ReadPaths_MountedReadOnly verifies that session ReadPaths
+// are mounted as read-only.
+func TestBuildExecConfig_ReadPaths_MountedReadOnly(t *testing.T) {
+	cfg := &config.Config{}
+	sess := &session.Session{
+		ReadPaths: []string{"/session-read"},
+	}
+
+	execCfg := buildExecConfig(cfg, sess)
+
+	var found bool
+	for _, m := range execCfg.MountDirs {
+		if m.Source == "/session-read" {
+			found = true
+			assert.True(t, m.ReadOnly, "ReadPath must be a read-only mount")
+		}
+	}
+	assert.True(t, found, "ReadPath must appear in mounts")
+}
+
+// TestBuildExecConfig_WriteAndReadPaths verifies that a session with both
+// WritePaths and ReadPaths gets the correct mount modes for each.
+func TestBuildExecConfig_WriteAndReadPaths(t *testing.T) {
+	cfg := &config.Config{}
+	sess := &session.Session{
+		WritePaths: []string{"/session-write"},
+		ReadPaths:  []string{"/session-read"},
+	}
+
+	execCfg := buildExecConfig(cfg, sess)
+
+	foundWrite, foundRead := false, false
+	for _, m := range execCfg.MountDirs {
+		switch m.Source {
+		case "/session-write":
+			foundWrite = true
+			assert.False(t, m.ReadOnly, "WritePath must be a writable mount")
+		case "/session-read":
+			foundRead = true
+			assert.True(t, m.ReadOnly, "ReadPath must be a read-only mount")
+		}
+	}
+	assert.True(t, foundWrite, "WritePath must appear in mounts")
+	assert.True(t, foundRead, "ReadPath must appear in mounts")
 }
 
 func TestBuildExecConfig_NoSessionNoWritePaths_FallsBackToTempDir(t *testing.T) {
@@ -300,9 +325,16 @@ func TestBuildExecConfig_NoSessionNoWritePaths_FallsBackToTempDir(t *testing.T) 
 	assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
 }
 
-func TestBuildExecConfig_ReadOnlySession_UsesConfigAllowWrite(t *testing.T) {
+func TestBuildExecConfig_NoSessionWritePaths_UsesConfigAllowWrite(t *testing.T) {
 	cfg := &config.Config{AllowWrite: []string{"/config-write"}}
-	roSess := &session.Session{Access: "ro"}
-	execCfg := buildExecConfig(cfg, roSess)
+	sess := &session.Session{} // no WritePaths
+	execCfg := buildExecConfig(cfg, sess)
 	assert.Equal(t, "/config-write", execCfg.WorkingDir)
+}
+
+func TestBuildExecConfig_WithWritePaths_UsesFirstWritePath(t *testing.T) {
+	cfg := &config.Config{AllowWrite: []string{"/config-write"}}
+	sess := &session.Session{WritePaths: []string{"/session-write"}}
+	execCfg := buildExecConfig(cfg, sess)
+	assert.Equal(t, "/session-write", execCfg.WorkingDir)
 }
