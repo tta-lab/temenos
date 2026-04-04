@@ -338,3 +338,22 @@ func TestBuildExecConfig_WithWritePaths_UsesFirstWritePath(t *testing.T) {
 	execCfg := buildExecConfig(cfg, sess)
 	assert.Equal(t, "/session-write", execCfg.WorkingDir)
 }
+
+// TestBuildExecConfig_ReadPathsOnly_FallsBackToConfigOrTemp verifies that a session
+// with only ReadPaths (no WritePaths) falls back to config AllowWrite or TempDir
+// for the working directory.
+func TestBuildExecConfig_ReadPathsOnly_FallsBackToConfigOrTemp(t *testing.T) {
+	t.Run("falls back to config AllowWrite", func(t *testing.T) {
+		cfg := &config.Config{AllowWrite: []string{"/config-write"}}
+		sess := &session.Session{ReadPaths: []string{"/session-read"}}
+		execCfg := buildExecConfig(cfg, sess)
+		assert.Equal(t, "/config-write", execCfg.WorkingDir)
+	})
+
+	t.Run("falls back to TempDir when no AllowWrite", func(t *testing.T) {
+		cfg := &config.Config{}
+		sess := &session.Session{ReadPaths: []string{"/session-read"}}
+		execCfg := buildExecConfig(cfg, sess)
+		assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
+	})
+}

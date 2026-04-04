@@ -302,6 +302,75 @@ func TestSessionJSONFormat(t *testing.T) {
 	}
 }
 
+// TestPruneStaleRemovesMissingReadPaths verifies sessions with non-existent ReadPaths are removed.
+func TestPruneStaleRemovesMissingReadPaths(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "sessions.json")
+	store := NewStore(filePath)
+
+	// Register session with non-existent ReadPaths (no WritePaths)
+	session, err := store.Register(RegisterRequest{
+		Agent:     "test-agent",
+		ReadPaths: []string{"/nonexistent/read/path/12345"},
+	})
+	require.NoError(t, err)
+
+	// Verify session exists
+	_, inMap := store.sessions[session.Token]
+	require.True(t, inMap, "session should be in map before pruning")
+
+	// Prune should remove it
+	store.PruneStale()
+
+	// Session should be gone
+	assert.Nil(t, store.Get(session.Token))
+}
+
+// TestPruneStaleRemovesMixedStalePaths verifies that a session with valid WritePaths
+// but missing ReadPaths is still pruned.
+func TestPruneStaleRemovesMixedStalePaths(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "sessions.json")
+	store := NewStore(filePath)
+
+	validDir := t.TempDir() // exists
+
+	session, err := store.Register(RegisterRequest{
+		Agent:      "test-agent",
+		WritePaths: []string{validDir},
+		ReadPaths:  []string{"/nonexistent/read/path/12345"},
+	})
+	require.NoError(t, err)
+
+	_, inMap := store.sessions[session.Token]
+	require.True(t, inMap, "session should be in map before pruning")
+
+	store.PruneStale()
+
+	assert.Nil(t, store.Get(session.Token))
+}
+
+// TestRegisterValidation verifies that Register rejects invalid paths.
+func TestRegisterValidation(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	tests := []struct {
+		name string
+		req  RegisterRequest
+	}{
+		{"empty write path", RegisterRequest{Agent: "a", WritePaths: []string{""}}},
+		{"relative write path", RegisterRequest{Agent: "a", WritePaths: []string{"relative/path"}}},
+		{"empty read path", RegisterRequest{Agent: "a", ReadPaths: []string{""}}},
+		{"relative read path", RegisterRequest{Agent: "a", ReadPaths: []string{"relative/path"}}},
+		{"overlapping paths", RegisterRequest{Agent: "a", WritePaths: []string{"/shared"}, ReadPaths: []string{"/shared"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := store.Register(tt.req)
+			require.Error(t, err, "Register should reject: %s", tt.name)
+		})
+	}
+}
+
 // TestLoadFromDiskFileNotExist verifies LoadFromDisk handles missing file gracefully.
 func TestLoadFromDiskFileNotExist(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "nonexistent.json"))

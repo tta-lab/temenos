@@ -59,6 +59,33 @@ func TestHandleHTTPSessionRegister_MissingAgent(t *testing.T) {
 	assert.Contains(t, errResp["error"], "agent")
 }
 
+func TestHandleHTTPSessionRegister_InvalidPaths(t *testing.T) {
+	store := makeSessionStore(t)
+	h := handleHTTPSessionRegister(store)
+
+	tests := []struct {
+		name string
+		req  session.RegisterRequest
+	}{
+		{"relative write path", session.RegisterRequest{Agent: "a", WritePaths: []string{"relative/path"}}},
+		{"empty read path", session.RegisterRequest{Agent: "a", ReadPaths: []string{""}}},
+		{"overlapping paths", session.RegisterRequest{Agent: "a", WritePaths: []string{"/shared"}, ReadPaths: []string{"/shared"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, _ := json.Marshal(tt.req)
+			req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			h.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
 // --- handleHTTPSessionDelete ---
 
 func registerSession(t *testing.T, store *session.Store, agent string) string {

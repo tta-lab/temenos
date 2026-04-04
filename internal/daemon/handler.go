@@ -214,7 +214,11 @@ func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
 		}
 		resp, err := handleSessionRegister(store, req)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, session.ErrValidation) {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)
