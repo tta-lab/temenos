@@ -159,7 +159,7 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: "command must not be empty"}},
-			}, struct{}{}, nil
+			}, nil, nil
 		}
 
 		execCfg := buildExecConfig(cfg, sess)
@@ -189,10 +189,10 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: "internal error: failed to serialize results"}},
-			}, struct{}{}, nil
+			}, nil, nil
 		}
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: string(resultJSON)}},
-		}, struct{}{}, nil
+		}, nil, nil
 	}
 }
