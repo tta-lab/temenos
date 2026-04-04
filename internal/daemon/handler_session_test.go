@@ -69,7 +69,9 @@ func TestHandleHTTPSessionRegister_InvalidPaths(t *testing.T) {
 	}{
 		{"relative write path", session.RegisterRequest{Agent: "a", WritePaths: []string{"relative/path"}}},
 		{"empty read path", session.RegisterRequest{Agent: "a", ReadPaths: []string{""}}},
-		{"overlapping paths", session.RegisterRequest{Agent: "a", WritePaths: []string{"/shared"}, ReadPaths: []string{"/shared"}}},
+		{"overlapping paths", session.RegisterRequest{
+			Agent: "a", WritePaths: []string{"/shared"}, ReadPaths: []string{"/shared"},
+		}},
 	}
 
 	for _, tt := range tests {
