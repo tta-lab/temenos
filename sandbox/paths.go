@@ -89,7 +89,6 @@ func dynamicToolDirs() []ToolDir {
 	add(resolveHomeSub(".local", "bin"))
 	add(resolveHomeSub(".bun", "bin"))
 	add(resolveHomeSub(".proto", "bin"))
-	add(resolveHomeSub(".qlty", "bin"))
 	return dirs
 }
 
