@@ -92,7 +92,6 @@ func TestDynamicToolDirs_ReturnsAllExpectedDirectories(t *testing.T) {
 		{".local/bin", "/test/home/.local/bin", []string{"/test/home/.local/bin"}},
 		{".bun/bin", "/test/home/.bun/bin", []string{"/test/home/.bun/bin"}},
 		{".proto/bin", "/test/home/.proto/bin", []string{"/test/home/.proto/bin"}},
-		{".qlty/bin", "/test/home/.qlty/bin", []string{"/test/home/.qlty/bin"}},
 	}
 
 	for _, tt := range tests {

@@ -11,7 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const roBind = "--ro-bind"
+const (
+	roBind  = "--ro-bind"
+	rwBind  = "--bind"
+	tmpPath = "/tmp"
+)
 
 func TestBwrapSandbox_BuildArgs(t *testing.T) {
 	s := &BwrapSandbox{BwrapPath: "bwrap"}
@@ -35,8 +39,8 @@ func TestBwrapSandbox_BuildArgs_WithMounts(t *testing.T) {
 	s := &BwrapSandbox{BwrapPath: "bwrap"}
 	cfg := &ExecConfig{
 		MountDirs: []Mount{
-			{Source: "/data", Target: "/data", ReadOnly: true},
-			{Source: "/writable", Target: "/writable", ReadOnly: false},
+			{Source: "/usr", Target: "/usr", ReadOnly: true},
+			{Source: tmpPath, Target: tmpPath, ReadOnly: false},
 		},
 	}
 
@@ -45,20 +49,20 @@ func TestBwrapSandbox_BuildArgs_WithMounts(t *testing.T) {
 	// Verify read-only mount uses --ro-bind
 	foundROBind := false
 	for i, a := range args {
-		if a == roBind && i+2 < len(args) && args[i+1] == "/data" && args[i+2] == "/data" {
+		if a == roBind && i+2 < len(args) && args[i+1] == "/usr" && args[i+2] == "/usr" {
 			foundROBind = true
 		}
 	}
-	assert.True(t, foundROBind, "expected --ro-bind for /data")
+	assert.True(t, foundROBind, "expected --ro-bind for /usr")
 
 	// Verify writable mount uses --bind
 	foundBind := false
 	for i, a := range args {
-		if a == "--bind" && i+2 < len(args) && args[i+1] == "/writable" && args[i+2] == "/writable" {
+		if a == rwBind && i+2 < len(args) && args[i+1] == tmpPath && args[i+2] == tmpPath {
 			foundBind = true
 		}
 	}
-	assert.True(t, foundBind, "expected --bind for /writable")
+	assert.True(t, foundBind, "expected --bind for /tmp")
 }
 
 func TestBwrapSandbox_BuildArgs_WithWorkingDir(t *testing.T) {
@@ -174,24 +178,50 @@ func TestBwrapSandbox_BuildArgs_MetadataOnlySkipped(t *testing.T) {
 	s := &BwrapSandbox{BwrapPath: "bwrap"}
 	cfg := &ExecConfig{
 		MountDirs: []Mount{
-			{Source: "/project/code", Target: "/project/code", ReadOnly: true},
-			{Source: "/project", Target: "/project", MetadataOnly: true},
+			{Source: "/var", Target: "/var", ReadOnly: true},
+			{Source: "/opt", Target: "/opt", MetadataOnly: true},
 		},
 	}
 
 	args := s.buildArgs("ls", cfg)
 
-	// /project/code should be bound read-only.
+	// /var should be bound read-only.
 	foundBind := false
 	for i, a := range args {
-		if a == roBind && i+2 < len(args) && args[i+1] == "/project/code" {
+		if a == roBind && i+2 < len(args) && args[i+1] == "/var" {
 			foundBind = true
 		}
 	}
-	assert.True(t, foundBind, "expected --ro-bind for /project/code")
+	assert.True(t, foundBind, "expected --ro-bind for /var")
 
-	// MetadataOnly mount /project must NOT appear in args — seatbelt concept only.
+	// MetadataOnly mount /opt must NOT appear in args — seatbelt concept only.
 	for _, a := range args {
-		assert.NotEqual(t, "/project", a, "MetadataOnly mount /project should not appear in bwrap args")
+		assert.NotEqual(t, "/opt", a, "MetadataOnly mount /opt should not appear in bwrap args")
 	}
+}
+
+func TestBwrapSandbox_BuildArgs_SkipsMissingSources(t *testing.T) {
+	s := &BwrapSandbox{BwrapPath: "bwrap"}
+	cfg := &ExecConfig{
+		MountDirs: []Mount{
+			{Source: "/nonexistent/path", Target: "/nonexistent/path", ReadOnly: true},
+			{Source: tmpPath, Target: tmpPath, ReadOnly: true},
+		},
+	}
+	args := s.buildArgs("echo hello", cfg)
+
+	// /nonexistent/path should be skipped
+	for _, a := range args {
+		assert.NotEqual(t, "/nonexistent/path", a,
+			"missing source path should be skipped in bwrap args")
+	}
+
+	// /tmp should still be present (as a bind, though also as tmpfs — check ro-bind)
+	foundTmpBind := false
+	for i, a := range args {
+		if a == roBind && i+1 < len(args) && args[i+1] == tmpPath {
+			foundTmpBind = true
+		}
+	}
+	assert.True(t, foundTmpBind, "existing source path /tmp should be bound")
 }

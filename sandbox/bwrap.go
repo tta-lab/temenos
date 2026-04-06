@@ -97,9 +97,14 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 
 	if cfg != nil {
 		for _, m := range cfg.MountDirs {
-			// MetadataOnly mounts are a seatbelt concept — bwrap namespace isolation
-			// provides implicit parent-directory visibility, so skip these entirely.
 			if m.MetadataOnly {
+				continue
+			}
+			if _, err := os.Stat(m.Source); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					slog.Warn("sandbox: unexpected error checking mount source; skipped",
+						"path", m.Source, "err", err)
+				}
 				continue
 			}
 			if m.ReadOnly {
