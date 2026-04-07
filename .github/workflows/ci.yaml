@@ -41,11 +41,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-
-      - name: Run golangci-lint
-        run: golangci-lint run ./...
+      - name: Lint with golangci-lint
+        uses: golangci/golangci-lint-action@v9 # zizmor: ignore[unpinned-uses]
+        with:
+          version: v2.2.1
