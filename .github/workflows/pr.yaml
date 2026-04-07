@@ -23,7 +23,7 @@ jobs:
       - name: Lint with golangci-lint
         uses: golangci/golangci-lint-action@v9 # zizmor: ignore[unpinned-uses]
         with:
-          version: v2.2.1
+          version: v2.11.4
 
       - name: Test
         run: make test
