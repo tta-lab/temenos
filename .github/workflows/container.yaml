@@ -32,22 +32,30 @@ jobs:
           chmod +x ./flicknote
 
       - name: Download task
+        id: download-task
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          TASK_URL=$(curl -fsSL         -H "Authorization: Bearer ${GITHUB_TOKEN}"         "https://api.github.com/repos/GuionAI/taskwarrior/releases/latest"         | jq -r '.assets[] | select(.name | test("x86_64-linux")) | .browser_download_url')
-          [ -n "$TASK_URL" ] && [ "$TASK_URL" \!= "null" ] || { echo "ERROR: no x86_64-linux asset" >&2; exit 1; }
+          RESPONSE=$(curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/GuionAI/taskwarrior/releases/latest")
+          TAG=$(echo "$RESPONSE" | jq -r '.tag_name')
+          [ -n "$TAG" ] && [ "$TAG" != "null" ] || { echo "ERROR: could not resolve tag" >&2; exit 1; }
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          TASK_URL=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | test("x86_64-linux")) | .browser_download_url')
+          [ -n "$TASK_URL" ] && [ "$TASK_URL" != "null" ] || { echo "ERROR: no x86_64-linux asset" >&2; exit 1; }
           TASK_TMP=$(mktemp -d) && curl -fsSL "$TASK_URL" | tar -xzf - -C "$TASK_TMP" --no-same-owner --no-same-permissions && [ -f "$TASK_TMP/task" ] || { echo 'ERROR: task binary not found' >&2; exit 1; } && mv "$TASK_TMP/task" ./task && rm -rf "$TASK_TMP" && chmod +x ./task
 
       - name: Download taskrc
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          TAG=$(curl -fsSL       -H "Authorization: Bearer ${GITHUB_TOKEN}"       "https://api.github.com/repos/GuionAI/taskwarrior/releases/latest"       | jq -r '.tag_name')
+          TAG="${{ steps.download-task.outputs.tag }}"
           [ -n "$TAG" ] && [ "$TAG" != "null" ] || { echo "ERROR: could not resolve tag" >&2; exit 1; }
-          curl -fsSL       "https://raw.githubusercontent.com/GuionAI/taskwarrior/${TAG}/.taskrc"       -o ./taskrc
+          curl -fsSL \
+            "https://raw.githubusercontent.com/GuionAI/taskwarrior/${TAG}/.taskrc" \
+            -o ./taskrc \
+            || { echo "ERROR: failed to download taskrc (curl exit $?)" >&2; exit 1; }
           [ -s ./taskrc ] || { echo "ERROR: taskrc empty or missing" >&2; exit 1; }
 
       - name: Set up Docker Buildx
