@@ -40,6 +40,16 @@ jobs:
           [ -n "$TASK_URL" ] && [ "$TASK_URL" \!= "null" ] || { echo "ERROR: no x86_64-linux asset" >&2; exit 1; }
           TASK_TMP=$(mktemp -d) && curl -fsSL "$TASK_URL" | tar -xzf - -C "$TASK_TMP" --no-same-owner --no-same-permissions && [ -f "$TASK_TMP/task" ] || { echo 'ERROR: task binary not found' >&2; exit 1; } && mv "$TASK_TMP/task" ./task && rm -rf "$TASK_TMP" && chmod +x ./task
 
+      - name: Download taskrc
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG=$(curl -fsSL       -H "Authorization: Bearer ${GITHUB_TOKEN}"       "https://api.github.com/repos/GuionAI/taskwarrior/releases/latest"       | jq -r '.tag_name')
+          [ -n "$TAG" ] && [ "$TAG" != "null" ] || { echo "ERROR: could not resolve tag" >&2; exit 1; }
+          curl -fsSL       "https://raw.githubusercontent.com/GuionAI/taskwarrior/${TAG}/.taskrc"       -o ./taskrc
+          [ -s ./taskrc ] || { echo "ERROR: taskrc empty or missing" >&2; exit 1; }
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3 # zizmor: ignore[unpinned-uses]
 
