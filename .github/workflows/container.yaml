@@ -17,6 +17,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4 # zizmor: ignore[artipacked]
 
+      - name: Download flicknote-cli
+        run: |
+          set -e
+          ASSET="flicknote-cli-x86_64-unknown-linux-musl.tar.xz"
+          BASE_URL="https://github.com/GuionAI/flicknote-cli/releases/latest/download"
+          curl -fsSL "${BASE_URL}/${ASSET}" -o /tmp/flicknote.tar.xz
+          EXPECTED=$(curl -fsSL "${BASE_URL}/${ASSET}.sha256" | awk '{print $1}')
+          [ -n "$EXPECTED" ] || { echo "ERROR: sha256 empty" >&2; exit 1; }
+          echo "${EXPECTED}  /tmp/flicknote.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/flicknote.tar.xz --strip-components=1 -C /tmp         "flicknote-cli-x86_64-unknown-linux-musl/flicknote"
+          [ -f /tmp/flicknote ] || { echo "ERROR: flicknote binary not found" >&2; exit 1; }
+          mv /tmp/flicknote ./flicknote
+          chmod +x ./flicknote
+
+      - name: Download task
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TASK_URL=$(curl -fsSL         -H "Authorization: Bearer ${GITHUB_TOKEN}"         "https://api.github.com/repos/GuionAI/taskwarrior/releases/latest"         | jq -r '.assets[] | select(.name | test("x86_64-linux")) | .browser_download_url')
+          [ -n "$TASK_URL" ] && [ "$TASK_URL" \!= "null" ] || { echo "ERROR: no x86_64-linux asset" >&2; exit 1; }
+          curl -fsSL "$TASK_URL" | tar -xzf - -C /tmp
+          [ -f /tmp/task ] || { echo "ERROR: task binary not found" >&2; exit 1; }
+          mv /tmp/task ./task
+          chmod +x ./task
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3 # zizmor: ignore[unpinned-uses]
 
@@ -48,5 +74,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
-          build-args: |
-            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
