@@ -4,8 +4,6 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -28,9 +26,7 @@ jobs:
           EXPECTED=$(curl -fsSL "${BASE_URL}/${ASSET}.sha256" | awk '{print $1}')
           [ -n "$EXPECTED" ] || { echo "ERROR: sha256 empty" >&2; exit 1; }
           echo "${EXPECTED}  /tmp/flicknote.tar.xz" | sha256sum -c -
-          tar -xJf /tmp/flicknote.tar.xz --strip-components=1 -C /tmp \
-  --no-same-owner --no-same-permissions \
-  "flicknote-cli-x86_64-unknown-linux-musl/flicknote"
+          tar -xJf /tmp/flicknote.tar.xz --strip-components=1 -C /tmp --no-same-owner --no-same-permissions "flicknote-cli-x86_64-unknown-linux-musl/flicknote"
           [ -f /tmp/flicknote ] || { echo "ERROR: flicknote binary not found" >&2; exit 1; }
           mv /tmp/flicknote ./flicknote
           chmod +x ./flicknote
@@ -42,17 +38,13 @@ jobs:
           set -e
           TASK_URL=$(curl -fsSL         -H "Authorization: Bearer ${GITHUB_TOKEN}"         "https://api.github.com/repos/GuionAI/taskwarrior/releases/latest"         | jq -r '.assets[] | select(.name | test("x86_64-linux")) | .browser_download_url')
           [ -n "$TASK_URL" ] && [ "$TASK_URL" \!= "null" ] || { echo "ERROR: no x86_64-linux asset" >&2; exit 1; }
-          curl -fsSL "$TASK_URL" | tar -xzf - -C /tmp --no-same-owner --no-same-permissions
-          [ -f /tmp/task ] || { echo "ERROR: task binary not found" >&2; exit 1; }
-          mv /tmp/task ./task
-          chmod +x ./task
+          TASK_TMP=$(mktemp -d) && curl -fsSL "$TASK_URL" | tar -xzf - -C "$TASK_TMP" --no-same-owner --no-same-permissions && [ -f "$TASK_TMP/task" ] || { echo 'ERROR: task binary not found' >&2; exit 1; } && mv "$TASK_TMP/task" ./task && rm -rf "$TASK_TMP" && chmod +x ./task
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3 # zizmor: ignore[unpinned-uses]
 
       - name: Login to GHCR
         uses: docker/login-action@v3 # zizmor: ignore[unpinned-uses]
-        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -71,7 +63,6 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v6 # zizmor: ignore[unpinned-uses]
-        if: github.event_name != 'pull_request'
         with:
           context: .
           push: true
@@ -80,7 +71,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
-
-      - name: PR build notice
-        if: github.event_name == 'pull_request'
-        run: echo "::notice::PR build: image built but not pushed to GHCR"
