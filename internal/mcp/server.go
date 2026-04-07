@@ -134,7 +134,10 @@ func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, 
 // buildExecConfig constructs the sandbox ExecConfig for a bash tool invocation.
 // Baseline mounts from config are prepended; session WritePaths are appended as
 // writable mounts; session ReadPaths are appended as read-only mounts; ancestor
-// MetadataOnly mounts are injected for stat access.
+// MetadataOnly mounts are injected for stat access. Session Env vars are
+// passed to the sandbox.
+//
+//nolint:gocyclo
 func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecConfig {
 	mounts := cfg.BaselineMounts()
 	if sess != nil {
@@ -153,7 +156,13 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 	} else if len(cfg.AllowWrite) > 0 {
 		workDir = cfg.AllowWrite[0]
 	}
-	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir}
+
+	var envSlice []string
+	if sess != nil && len(sess.Env) > 0 {
+		envSlice = session.EnvMapToSlice(sess.Env)
+	}
+
+	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir, Env: envSlice}
 }
 
 // bashHandler returns the tool handler for the bash tool.
