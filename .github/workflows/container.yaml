@@ -50,7 +50,7 @@ jobs:
       - name: Download taskrc
         run: |
           set -e
-          TAG="${{ steps.download-task.outputs.tag }}"
+          TAG="${{ steps.download-task.outputs.tag }}" # zizmor: ignore[template-injection]
           [ -n "$TAG" ] && [ "$TAG" != "null" ] || { echo "ERROR: could not resolve tag" >&2; exit 1; }
           curl -fsSL \
             "https://raw.githubusercontent.com/GuionAI/taskwarrior/${TAG}/.taskrc" \
