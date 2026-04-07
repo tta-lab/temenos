@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	testEnvMutated = "mutated"
+	testEnvAdded   = "added"
 )
 
 // TestRegister verifies token format, session fields, and TTL.
@@ -381,4 +387,191 @@ func TestLoadFromDiskFileNotExist(t *testing.T) {
 	// Should have empty sessions
 	list := store.List()
 	assert.Len(t, list, 0)
+}
+
+// TestRegister_WithEnv_PersistsAndRoundTrips verifies Env is stored and retrieved correctly.
+func TestRegister_WithEnv_PersistsAndRoundTrips(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	req := RegisterRequest{
+		Agent:      "test-agent",
+		WritePaths: []string{"/tmp/write"},
+		ReadPaths:  []string{"/tmp/read"},
+		Env:        map[string]string{"FOO": "bar", "TTAL_AGENT_NAME": "astra"},
+	}
+
+	session, err := store.Register(req)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"FOO": "bar", "TTAL_AGENT_NAME": "astra"}, session.Env)
+
+	// Retrieve and verify
+	retrieved := store.Get(session.Token)
+	require.NotNil(t, retrieved)
+	assert.Equal(t, map[string]string{"FOO": "bar", "TTAL_AGENT_NAME": "astra"}, retrieved.Env)
+}
+
+// TestRegister_EnvKeyValidation verifies invalid env keys are rejected.
+func TestRegister_EnvKeyValidation(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"empty key", map[string]string{"": "value"}},
+		{"key starting with digit", map[string]string{"1FOO": "bar"}},
+		{"key with equals", map[string]string{"FOO=BAR": "baz"}},
+		{"key with space", map[string]string{"FOO BAR": "baz"}},
+		{"key with tab", map[string]string{"FOO\tBAR": "baz"}},
+		{"key with newline", map[string]string{"FOO\nBAR": "baz"}},
+		{"key with CR", map[string]string{"FOO\rBAR": "baz"}},
+		{"whitespace-only key", map[string]string{"   ": "val"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := store.Register(RegisterRequest{Agent: "a", Env: tt.env})
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, ErrValidation), "expected ErrValidation, got: %v", err)
+		})
+	}
+}
+
+// TestRegister_EnvValueValidation verifies invalid env values are rejected.
+func TestRegister_EnvValueValidation(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	tests := []struct {
+		name  string
+		env   map[string]string
+		valid bool
+	}{
+		{"value with NUL", map[string]string{"FOO": "bar\x00baz"}, false},
+		{"value with LF", map[string]string{"FOO": "bar\nbaz"}, false},
+		{"value with CR", map[string]string{"FOO": "bar\rbaz"}, false},
+		{"value with shell metachar $", map[string]string{"FOO": "bar$HOME"}, true},
+		{"value with backtick", map[string]string{"FOO": "bar`cmd`"}, true},
+		{"value with ${}", map[string]string{"FOO": "bar${VAR}"}, true},
+		{"value with =", map[string]string{"FOO": "a=b=c"}, true},
+		{"empty value", map[string]string{"FOO": ""}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := store.Register(RegisterRequest{Agent: "a", Env: tt.env})
+			if tt.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.True(t, errors.Is(err, ErrValidation), "expected ErrValidation, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestRegister_EnvDefensiveCopy verifies Register copies the Env map defensively.
+func TestRegister_EnvDefensiveCopy(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	original := map[string]string{"FOO": "bar"}
+	req := RegisterRequest{Agent: "a", Env: original}
+
+	session, err := store.Register(req)
+	require.NoError(t, err)
+
+	// Mutate the original map
+	original["FOO"] = testEnvMutated
+	original["NEW"] = testEnvAdded
+
+	// Retrieve and verify original values intact
+	retrieved := store.Get(session.Token)
+	require.NotNil(t, retrieved)
+	assert.Equal(t, "bar", retrieved.Env["FOO"])
+	_, hasNew := retrieved.Env["NEW"]
+	assert.False(t, hasNew)
+}
+
+// TestSession_Clone_DeepCopiesEnv verifies Session.clone() deep-copies the Env map.
+func TestSession_Clone_DeepCopiesEnv(t *testing.T) {
+	orig := &Session{Agent: "a", Env: map[string]string{"FOO": "bar"}}
+	clone := orig.clone()
+
+	clone.Env["FOO"] = testEnvMutated
+	clone.Env["NEW"] = testEnvAdded
+
+	assert.Equal(t, "bar", orig.Env["FOO"])
+	_, hasNew := orig.Env["NEW"]
+	assert.False(t, hasNew)
+}
+
+// TestLoadFromDisk_BackwardCompat verifies old JSON without env field loads with nil Env.
+func TestLoadFromDisk_BackwardCompat(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "sessions.json")
+
+	oldJSON := `{"token1234567890123456789012345678901234567890123456789012345678901234":` +
+		`{"token":"token1234567890123456789012345678901234567890123456789012345678901234"` +
+		`,"agent":"old-agent","write_paths":[],"read_paths":[],` +
+		`"created_at":"2024-01-01T00:00:00Z","expires_at":"2030-01-01T00:00:00Z"}}`
+	err := os.WriteFile(filePath, []byte(oldJSON), 0o600)
+	require.NoError(t, err)
+
+	store := NewStore(filePath)
+	err = store.LoadFromDisk()
+	require.NoError(t, err)
+
+	list := store.List()
+	require.Len(t, list, 1)
+	assert.Equal(t, "old-agent", list[0].Agent)
+	assert.Nil(t, list[0].Env)
+
+	sess := store.Get(list[0].Token)
+	require.NotNil(t, sess)
+	assert.Nil(t, sess.Env)
+}
+
+// TestGet_EnvDefensiveCopy verifies Get returns a cloned session.
+func TestGet_EnvDefensiveCopy(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	req := RegisterRequest{Agent: "a", Env: map[string]string{"FOO": "bar"}}
+	session, err := store.Register(req)
+	require.NoError(t, err)
+
+	retrieved := store.Get(session.Token)
+	require.NotNil(t, retrieved)
+
+	// Mutate returned Env
+	retrieved.Env["FOO"] = testEnvMutated
+	retrieved.Env["NEW"] = testEnvAdded
+
+	// Get again — original must be intact
+	retrieved2 := store.Get(session.Token)
+	require.NotNil(t, retrieved2)
+	assert.Equal(t, "bar", retrieved2.Env["FOO"])
+	_, hasNew2 := retrieved2.Env["NEW"]
+	assert.False(t, hasNew2)
+}
+
+// TestList_EnvDefensiveCopy verifies List returns cloned sessions.
+func TestList_EnvDefensiveCopy(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	req := RegisterRequest{Agent: "a", Env: map[string]string{"FOO": "bar"}}
+	session, err := store.Register(req)
+	require.NoError(t, err)
+
+	list := store.List()
+	require.Len(t, list, 1)
+	assert.Equal(t, session.Token, list[0].Token)
+
+	// Mutate returned Env
+	list[0].Env["FOO"] = testEnvMutated
+	list[0].Env["NEW"] = testEnvAdded
+
+	// Get again — original must be intact
+	sess := store.Get(session.Token)
+	require.NotNil(t, sess)
+	assert.Equal(t, "bar", sess.Env["FOO"])
+	_, hasNewSess := sess.Env["NEW"]
+	assert.False(t, hasNewSess)
 }

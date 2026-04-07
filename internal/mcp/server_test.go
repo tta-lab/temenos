@@ -357,3 +357,39 @@ func TestBuildExecConfig_ReadPathsOnly_FallsBackToConfigOrTemp(t *testing.T) {
 		assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
 	})
 }
+
+// TestBuildExecConfig_SessionEnv_PassedToExecConfig verifies session Env vars
+// are passed through to the ExecConfig.
+func TestBuildExecConfig_SessionEnv_PassedToExecConfig(t *testing.T) {
+	cfg := &config.Config{}
+	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar"}}
+
+	execCfg := buildExecConfig(cfg, sess)
+
+	assert.NotNil(t, execCfg.Env)
+	assert.Contains(t, execCfg.Env, "FOO=bar")
+}
+
+// TestBuildExecConfig_NilSessionEnv_EmptyExecEnv verifies that a session with
+// no Env produces an empty/nil ExecConfig.Env.
+func TestBuildExecConfig_NilSessionEnv_EmptyExecEnv(t *testing.T) {
+	cfg := &config.Config{}
+	sess := &session.Session{Agent: "test"}
+
+	execCfg := buildExecConfig(cfg, sess)
+
+	assert.Nil(t, execCfg.Env)
+}
+
+// TestBuildExecConfig_SessionEnv_MultipleVars verifies multiple env vars are all present.
+func TestBuildExecConfig_SessionEnv_MultipleVars(t *testing.T) {
+	cfg := &config.Config{}
+	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar", "BAZ": "qux"}}
+
+	execCfg := buildExecConfig(cfg, sess)
+
+	assert.NotNil(t, execCfg.Env)
+	assert.Contains(t, execCfg.Env, "FOO=bar")
+	assert.Contains(t, execCfg.Env, "BAZ=qux")
+	assert.Len(t, execCfg.Env, 2)
+}

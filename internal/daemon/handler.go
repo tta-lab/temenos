@@ -91,12 +91,9 @@ func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount
 }
 
 // buildEnvSlice converts a map of env vars to a KEY=VALUE slice.
+// Deprecated: use session.EnvMapToSlice instead.
 func buildEnvSlice(env map[string]string) []string {
-	s := make([]string, 0, len(env))
-	for k, v := range env {
-		s = append(s, k+"="+v)
-	}
-	return s
+	return session.EnvMapToSlice(env)
 }
 
 // buildExecConfig constructs a sandbox ExecConfig from environment and mounts.

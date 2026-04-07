@@ -246,3 +246,130 @@ func TestHandleHTTPSession_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, sessions2)
 }
+
+// TestHTTPSessionRegister_WithEnv verifies that registering with Env persists it.
+func TestHTTPSessionRegister_WithEnv(t *testing.T) {
+	store := makeSessionStore(t)
+	h := handleHTTPSessionRegister(store)
+
+	body, _ := json.Marshal(session.RegisterRequest{
+		Agent:      "env-agent",
+		WritePaths: []string{"/tmp/write"},
+		Env:        map[string]string{"FOO": "bar", "BAZ": "qux"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp SessionRegisterResponse
+	err := json.NewDecoder(rec.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.Token, 64)
+
+	// Verify Env persisted via store
+	sess := store.Get(resp.Token)
+	require.NotNil(t, sess)
+	assert.Equal(t, "bar", sess.Env["FOO"])
+	assert.Equal(t, "qux", sess.Env["BAZ"])
+}
+
+// TestHTTPSessionRegister_InvalidEnvKey verifies that invalid Env keys return 400.
+func TestHTTPSessionRegister_InvalidEnvKey(t *testing.T) {
+	store := makeSessionStore(t)
+	h := handleHTTPSessionRegister(store)
+
+	invalidEnvs := []map[string]string{
+		{"=bad": "x"},
+		{"1BAD": "x"},
+		{"FOO BAR": "x"},
+		{"": "x"},
+	}
+
+	for _, env := range invalidEnvs {
+		body, _ := json.Marshal(session.RegisterRequest{Agent: "a", Env: env})
+		req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		h.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 for env %v", env)
+	}
+}
+
+// TestHTTPSessionRegister_InvalidEnvValue verifies that invalid Env values return 400.
+func TestHTTPSessionRegister_InvalidEnvValue(t *testing.T) {
+	store := makeSessionStore(t)
+	h := handleHTTPSessionRegister(store)
+
+	invalidValues := []map[string]string{
+		{"FOO": "bar\nbaz"},
+		{"FOO": "bar\rbaz"},
+		{"FOO": "bar\x00baz"},
+	}
+
+	for _, env := range invalidValues {
+		body, _ := json.Marshal(session.RegisterRequest{Agent: "a", Env: env})
+		req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		h.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 for env value %v", env)
+	}
+}
+
+// TestHTTPSessionRegister_ValidEnvValues verifies that valid Env values are accepted.
+func TestHTTPSessionRegister_ValidEnvValues(t *testing.T) {
+	store := makeSessionStore(t)
+	h := handleHTTPSessionRegister(store)
+
+	validValues := []map[string]string{
+		{"FOO": ""},
+		{"FOO": "a=b=c"},
+		{"FOO": "$HOME"},
+		{"FOO": "${VAR}"},
+		{"FOO": "`cmd`"},
+	}
+
+	for _, env := range validValues {
+		body, _ := json.Marshal(session.RegisterRequest{Agent: "a", Env: env})
+		req := httptest.NewRequest(http.MethodPost, "/session/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		h.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code, "expected 200 for env value %v", env)
+	}
+}
+
+// TestHTTPSessionList_IncludesEnv verifies that List() includes Env in the response.
+func TestHTTPSessionList_IncludesEnv(t *testing.T) {
+	store := makeSessionStore(t)
+
+	_, err := store.Register(session.RegisterRequest{
+		Agent: "env-agent",
+		Env:   map[string]string{"FOO": "bar"},
+	})
+	require.NoError(t, err)
+
+	h := handleHTTPSessionList(store)
+	req := httptest.NewRequest(http.MethodGet, "/session/list", nil)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var sessions []session.Session
+	err = json.NewDecoder(rec.Body).Decode(&sessions)
+	require.NoError(t, err)
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "bar", sessions[0].Env["FOO"])
+}
