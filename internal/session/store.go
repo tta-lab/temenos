@@ -103,22 +103,13 @@ func (s *Store) persist() error {
 }
 
 // validateEnv returns an ErrValidation-wrapped error if any env key or value
-// is invalid. Key rules: non-empty, no NUL, no whitespace, no '=', must match
-// POSIX name pattern [a-zA-Z_][a-zA-Z0-9_]*. Value rules: no NUL, no LF, no CR.
-// Empty values are valid. Shell metacharacters ($ ` ${}) are allowed — env vars
-// are passed via execve KEY=VALUE pairs, not shell-interpreted.
+// is invalid. Key rules: must match POSIX name pattern [a-zA-Z_][a-zA-Z0-9_]*.
+// Value rules: no NUL, no LF, no CR. Empty values are valid. Shell metacharacters
+// ($ ` ${}) are allowed — env vars are passed via execve KEY=VALUE pairs, not
+// shell-interpreted.
 func validateEnv(env map[string]string) error {
 	for k, v := range env {
-		if k == "" {
-			return fmt.Errorf("%w: env: key must not be empty", ErrValidation)
-		}
-		if strings.ContainsRune(k, 0) {
-			return fmt.Errorf("%w: env: key %q contains NUL byte", ErrValidation, k)
-		}
-		if strings.ContainsAny(k, " \t\n\r=") {
-			return fmt.Errorf("%w: env: key %q contains whitespace or '='", ErrValidation, k)
-		}
-		if len(k) > 0 && !isValidEnvName(k) {
+		if !isValidEnvName(k) {
 			return fmt.Errorf("%w: env: key %q must match [a-zA-Z_][a-zA-Z0-9_]*", ErrValidation, k)
 		}
 		if strings.ContainsAny(v, "\x00\n\r") {
@@ -201,6 +192,9 @@ func validatePaths(write, read []string) error {
 func (s *Store) Register(req RegisterRequest) (*Session, error) {
 	if err := validatePaths(req.WritePaths, req.ReadPaths); err != nil {
 		return nil, err
+	}
+	if len(req.Env) > 64 {
+		return nil, fmt.Errorf("%w: env: too many variables (max 64)", ErrValidation)
 	}
 	if err := validateEnv(req.Env); err != nil {
 		return nil, err

@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -435,6 +436,32 @@ func TestRegister_EnvKeyValidation(t *testing.T) {
 			assert.True(t, errors.Is(err, ErrValidation), "expected ErrValidation, got: %v", err)
 		})
 	}
+}
+
+// TestRegister_EnvTooManyVars verifies that more than 64 env vars is rejected.
+func TestRegister_EnvTooManyVars(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	env := make(map[string]string)
+	for i := 0; i < 65; i++ {
+		env["VAR_"+string(rune('A'+i%26))+fmt.Sprintf("%d", i)] = "val"
+	}
+	_, err := store.Register(RegisterRequest{Agent: "a", Env: env})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrValidation))
+	assert.Contains(t, err.Error(), "too many variables")
+}
+
+// TestRegister_EnvMaxVarsAccepted verifies that exactly 64 env vars is accepted.
+func TestRegister_EnvMaxVarsAccepted(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+
+	env := make(map[string]string)
+	for i := 0; i < 64; i++ {
+		env["VAR_"+fmt.Sprintf("%03d", i)] = "val"
+	}
+	_, err := store.Register(RegisterRequest{Agent: "a", Env: env})
+	require.NoError(t, err)
 }
 
 // TestRegister_EnvValueValidation verifies invalid env values are rejected.
