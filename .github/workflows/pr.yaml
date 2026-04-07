@@ -20,16 +20,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Install qlty
-        run: |
-          curl -fsSL https://qlty.sh | QLTY_VERSION=0.618.0 bash
-          echo "$HOME/.qlty/bin" >> $GITHUB_PATH
-
-      - name: Lint and security scan
-        run: qlty check --all --no-progress
+      - name: Lint with golangci-lint
+        uses: golangci/golangci-lint-action@v9 # zizmor: ignore[unpinned-uses]
+        with:
+          version: v2.11.4
 
       - name: Test
         run: make test
