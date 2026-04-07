@@ -33,9 +33,7 @@ go.work.sum
 
 # Built binary
 temenos
+# Workflow-downloaded binaries
 flicknote
 task
-
-# qlty — ignore everything except the committed config
-.qlty/*
-!.qlty/qlty.toml
+taskrc

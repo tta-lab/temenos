@@ -44,10 +44,5 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Install qlty
-        run: |
-          curl -fsSL https://qlty.sh | QLTY_VERSION=0.618.0 bash
-          echo "$HOME/.qlty/bin" >> $GITHUB_PATH
-
-      - name: Lint and security scan
-        run: qlty check --all --no-progress
+      - name: Run golangci-lint
+        run: golangci-lint run ./...

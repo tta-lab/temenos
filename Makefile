@@ -1,8 +1,8 @@
-.PHONY: all build test fmt vet lint tidy ci install install-hooks qlty
+.PHONY: all build test fmt vet lint tidy ci install install-hooks
 
 BINARY := temenos
 
-all: fmt tidy qlty build
+all: fmt tidy lint build
 
 build:
 	@echo "Building $(BINARY)..."
@@ -26,12 +26,10 @@ lint:
 tidy:
 	@go mod tidy
 
-qlty:
-	@echo "Running qlty check..."
-	@qlty check --all --no-progress
-	@echo "✓ Qlty check complete"
+ci: fmt tidy lint test build
+	@echo "✓ CI checks complete"
 
+# Install lefthook git hooks (pre-commit: gofmt + goimports, pre-push: golangci-lint + trufflehog)
 install-hooks:
-	@qlty githooks install
-
-ci: fmt tidy qlty test build
+	@lefthook install
+	@echo "✓ Lefthook hooks installed (pre-commit: gofmt + goimports, pre-push: golangci-lint + trufflehog)"

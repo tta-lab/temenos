@@ -1,0 +1,19 @@
+pre-commit:
+  parallel: true
+  commands:
+    gofmt:
+      glob: "*.go"
+      run: gofmt -w -s {staged_files}
+      stage_fixed: true
+    goimports:
+      glob: "*.go"
+      run: goimports -w {staged_files}
+      stage_fixed: true
+
+pre-push:
+  parallel: true
+  commands:
+    golangci-lint:
+      run: golangci-lint run ./...
+    trufflehog:
+      run: bash -c 'if [ -f .git ]; then trufflehog filesystem . --only-verified --fail; else trufflehog git file://. --since-commit HEAD --only-verified --fail; fi'
