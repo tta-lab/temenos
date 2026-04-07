@@ -20,8 +20,8 @@ RUN apk add --no-cache \
 
 COPY --from=builder /app/temenos /usr/local/bin/temenos
 COPY --from=organon /usr/local/bin/src /usr/local/bin/web /usr/local/bin/
-COPY flicknote /usr/local/bin/note
-COPY task /usr/local/bin/task
+COPY --chmod=755 flicknote /usr/local/bin/note
+COPY --chmod=755 task /usr/local/bin/task
 
 # TCP mode: unauthenticated plain HTTP. Restrict access via Kubernetes NetworkPolicy.
 ENV TEMENOS_LISTEN_ADDR=:8081
