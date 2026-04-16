@@ -94,7 +94,13 @@ func cgroupAvailable() bool {
 }
 
 func checkCgroupAvailable() bool {
-	controllersFile := filepath.Join(cgroupRoot, "cgroup.controllers")
+	return checkCgroupAvailableAt(cgroupRoot)
+}
+
+// checkCgroupAvailableAt is the injectable variant for testing.
+// root must be the absolute path to the cgroup v2 root.
+func checkCgroupAvailableAt(root string) bool {
+	controllersFile := filepath.Join(root, "cgroup.controllers")
 	if _, err := os.Stat(controllersFile); err != nil {
 		return false
 	}

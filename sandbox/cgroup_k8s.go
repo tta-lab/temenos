@@ -54,6 +54,13 @@ var initLeafSucceeded bool
 // Set by setupInitLeaf after migration (so it refers to selfCgroup, not selfCgroup/init).
 var execCgroupBase string
 
+// statCgroupControllers checks whether /sys/fs/cgroup/cgroup.controllers exists.
+// Extracted as a package var so tests can swap the probe without touching the filesystem.
+var statCgroupControllers = func() bool {
+	_, err := os.Stat(filepath.Join(cgroupRoot, "cgroup.controllers"))
+	return err == nil
+}
+
 // setupInitLeaf migrates the current process into a leaf sub-cgroup ("init/")
 // so that we can enable +memory on our parent without violating the
 // cgroup v2 "no internal processes" rule. Idempotent: subsequent calls
@@ -66,8 +73,15 @@ func setupInitLeaf() error {
 	return initLeafErr
 }
 
+// runInitLeaf is the zero-arg wrapper. Tests should call runInitLeafAt for control.
 func runInitLeaf() error {
-	cgroup2Root := filepath.Join(cgroupRoot, "cgroup.controllers")
+	return runInitLeafAt(cgroupRoot)
+}
+
+// runInitLeafAt performs the init-leaf migration under the given cgroup root.
+// root must be the absolute path to the cgroup v2 root (e.g. "/sys/fs/cgroup").
+func runInitLeafAt(root string) error {
+	cgroup2Root := filepath.Join(root, "cgroup.controllers")
 	if _, err := os.Stat(cgroup2Root); err != nil {
 		return fmt.Errorf("cgroup v2 not mounted: %w", err)
 	}
@@ -78,7 +92,7 @@ func runInitLeaf() error {
 	}
 
 	// If already inside init/, nothing to do.
-	if strings.HasSuffix(selfCgroup, "/init") || selfCgroup == cgroupRoot+"/init" {
+	if strings.HasSuffix(selfCgroup, "/init") || selfCgroup == root+"/init" {
 		execCgroupBase = selfCgroup
 		return nil
 	}
@@ -128,14 +142,21 @@ func enableMemoryController(path string) error {
 }
 
 // inK8sPod returns true when temenos is running inside a Kubernetes pod.
+//
+// KUBERNETES_SERVICE_HOST is set by the kubelet for every container in a pod.
+// We use it only as a hint to enable filesystem probes — any process can set
+// this env var, but the cgroup namespace boundary prevents containers from
+// escaping their cgroup tree, so the env var alone cannot cause harm. The real
+// trust signal comes from the cgroup namespace (containers cannot see or write
+// the host cgroup root).
 func inK8sPod() bool {
-	_, k8sEnv := os.LookupEnv("KUBERNETES_SERVICE_HOST")
-	if !k8sEnv {
+	// Probe the filesystem first (fast, no side-effects).
+	if !statCgroupControllers() {
 		return false
 	}
-	controllersFile := filepath.Join(cgroupRoot, "cgroup.controllers")
-	_, err := os.Stat(controllersFile)
-	return err == nil
+	// Then check the env var.
+	_, ok := os.LookupEnv("KUBERNETES_SERVICE_HOST")
+	return ok
 }
 
 // SetupCgroupV2 performs one-time cgroup v2 init-leaf setup.
