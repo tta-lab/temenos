@@ -1,3 +1,5 @@
+//go:build linux
+
 package sandbox
 
 import (
@@ -9,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"syscall"
 	"time"
 )
 
@@ -44,15 +45,9 @@ func (s *BwrapSandbox) Exec(
 	}
 	defer cg.cleanup()
 
-	// Open the cgroup directory as an FD for the child to be born into.
-	// The child inherits this FD via CLONE_INTO_CGROUP (Linux 5.14+).
-	cgFD, err := os.Open(cg.path)
-	if err != nil {
-		return "", "", -1, fmt.Errorf("sandbox: open cgroup dir: %w", err)
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		UseCgroupFD: true,
-		CgroupFD:    int(cgFD.Fd()),
+	// Set up cgroup FD for atomic child placement via clone3(CLONE_INTO_CGROUP).
+	if err := execWithCgroup(cmd, cg); err != nil {
+		return "", "", -1, err
 	}
 
 	return runCmd(ctx, cmd)
@@ -159,9 +154,4 @@ func coveredByStaticRoot(path string) bool {
 		}
 	}
 	return false
-}
-
-// isSubdirOf checks if child starts with parent + "/".
-func isSubdirOf(child, parent string) bool {
-	return len(child) > len(parent) && child[:len(parent)+1] == parent+"/"
 }

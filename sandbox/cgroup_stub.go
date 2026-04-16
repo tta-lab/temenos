@@ -23,3 +23,12 @@ func inK8sPod() bool { return false }
 
 // SetupCgroupV2 always returns nil on non-Linux.
 func SetupCgroupV2() error { return nil }
+
+// Status describes the sandbox environment. Empty on non-Linux.
+type Status struct{}
+
+// String implements fmt.Stringer for non-Linux.
+func (s Status) String() string { return "sandbox status: not available on this platform" }
+
+// CurrentStatus always returns an empty status on non-Linux.
+func CurrentStatus() Status { return Status{} }

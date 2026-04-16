@@ -1,3 +1,5 @@
+//go:build linux
+
 package sandbox
 
 import (
@@ -146,6 +148,9 @@ func TestBwrapSandbox_MemoryLimit_Degradation(t *testing.T) {
 	}
 	if !sbx.IsAvailable() {
 		t.Skip("bwrap not available")
+	}
+	if !cgroupAvailable() {
+		t.Skip("cgroup v2 not available")
 	}
 
 	stdout, stderr, exitCode, err := sbx.Exec(context.Background(), "echo hello", nil)
