@@ -90,15 +90,33 @@ func runInitLeaf() error {
 		return fmt.Errorf("migrate self to %s: %w", procsFile, err)
 	}
 
-	// Enable +memory on our parent so children can use it.
-	subtreeCtrl := filepath.Join(selfCgroup, "cgroup.subtree_control")
+	// Enable +memory on the init/ cgroup's subtree_control so that
+	// newCgroupExec can create memory-limited children under init/.
+	// This write succeeds because init/ is a leaf (no internal processes).
+	if err := enableMemoryController(initDir); err != nil {
+		return fmt.Errorf("enable +memory on %s: %w", filepath.Join(initDir, "cgroup.subtree_control"), err)
+	}
+
+	// Also ensure +memory is enabled on the parent cgroup's subtree_control.
+	// This covers the case where the parent doesn't yet have memory delegated.
+	if err := enableMemoryController(selfCgroup); err != nil {
+		return fmt.Errorf("enable +memory on %s: %w", filepath.Join(selfCgroup, "cgroup.subtree_control"), err)
+	}
+
+	return nil
+}
+
+// enableMemoryController writes "+memory" to path/cgroup.subtree_control.
+// Returns nil if already set or successfully written. EBUSY triggers a retry.
+func enableMemoryController(path string) error {
+	subtreeCtrl := filepath.Join(path, "cgroup.subtree_control")
 	for attempt := 0; attempt < 2; attempt++ {
 		err := os.WriteFile(subtreeCtrl, []byte("+memory"), 0o644)
 		if err == nil {
 			return nil
 		}
 		if !errors.Is(err, unix.EBUSY) {
-			return fmt.Errorf("enable +memory on %s: %w", subtreeCtrl, err)
+			return err
 		}
 	}
 	return errors.New("enable +memory on subtree_control: EBUSY after retry")

@@ -86,6 +86,11 @@ func TestDiscoverDelegatedPath(t *testing.T) {
 }
 
 func TestInK8sPod(t *testing.T) {
+	// Skip if running as root — writing to /sys/fs/cgroup would modify the live cgroup fs.
+	if os.Getuid() == 0 {
+		t.Skip("skipping: writing to /sys/fs/cgroup is destructive as root")
+	}
+
 	tests := []struct {
 		name    string
 		env     map[string]string
