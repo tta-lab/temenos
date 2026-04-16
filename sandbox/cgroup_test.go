@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -25,19 +26,16 @@ func TestShortID(t *testing.T) {
 
 func TestNewCgroupExec_Integration(t *testing.T) {
 	if !cgroupAvailable() {
-		t.Skip("cgroup v2 not available")
+		t.Skip("cgroup v2 not available (requires systemd delegation subtree with memory controller)")
 	}
 
 	cg, err := newCgroupExec(128)
 	if err != nil {
-		if os.IsPermission(err) {
-			t.Skip("no permission to create cgroup sub-directory (requires root or SYS_ADMIN)")
-		}
 		t.Fatal(err)
 	}
 	defer cg.cleanup()
 
-	// Verify directory exists
+	// Verify directory exists under the delegated path (not at root).
 	if _, err := os.Stat(cg.path); err != nil {
 		t.Fatalf("cgroup dir should exist: %v", err)
 	}
@@ -48,7 +46,7 @@ func TestNewCgroupExec_Integration(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := strconv.FormatInt(128*1024*1024, 10)
-	if got := string(data); got != expected {
+	if got := strings.TrimSpace(string(data)); got != expected {
 		val, parseErr := strconv.ParseInt(got, 10, 64)
 		if parseErr != nil || val != 128*1024*1024 {
 			t.Errorf("memory.max = %q, want %s", got, expected)
@@ -60,7 +58,7 @@ func TestNewCgroupExec_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(swapData); got != "0" {
+	if got := strings.TrimSpace(string(swapData)); got != "0" {
 		t.Errorf("memory.swap.max = %q, want 0", got)
 	}
 

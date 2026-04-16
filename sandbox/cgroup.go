@@ -14,9 +14,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/containerd/cgroups/v3/cgroup2"
 )
 
 const (
@@ -27,11 +26,15 @@ const (
 var (
 	cgroupOnce      sync.Once
 	cgroupAvailBool bool
+	// discoveredPath holds the delegated cgroup path discovered at availability check time.
+	discoveredPath string
 )
 
 // cgroupExec manages a per-execution cgroup v2 sub-group with memory limits.
+// Wraps cgroup2.Manager.
 type cgroupExec struct {
-	path string // e.g. /sys/fs/cgroup/temenos-exec-a1b2c3d4
+	mgr  *cgroup2.Manager
+	path string // e.g. /sys/fs/cgroup/user.slice/.../temenos-exec-a1b2c3d4
 }
 
 // newCgroupExec creates a cgroup sub-directory and sets memory.max + memory.swap.max.
@@ -41,69 +44,46 @@ func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cgroup: generate id: %w", err)
 	}
-	path := filepath.Join(cgroupRoot, cgroupPrefix+id)
 
-	if err := os.Mkdir(path, 0o700); err != nil {
-		return nil, fmt.Errorf("cgroup: mkdir %s: %w", path, err)
+	// Discover the delegated path — required for cgroup v2 delegation to work.
+	// This is cached by cgroupAvailable() so subsequent calls are free.
+	delegatedPath, ok := discoverDelegatedPath("/proc/self/cgroup")
+	if !ok {
+		return nil, errors.New("cgroup: cannot discover delegated path from /proc/self/cgroup (not in a cgroup v2 delegation subtree?)")
 	}
 
-	cg := &cgroupExec{path: path}
+	cgroupPath := filepath.Join(delegatedPath, cgroupPrefix+id)
 
-	// Enable memory controller in parent subtree (idempotent, may fail if already set).
-	if err := os.WriteFile(
-		filepath.Join(cgroupRoot, "cgroup.subtree_control"), []byte("+memory"), 0o644,
-	); err != nil {
-		slog.Warn("sandbox: cgroup subtree_control write failed", "err", err)
+	memLimit := int64(memoryMB) * 1024 * 1024
+	mgr, err := cgroup2.NewManager(cgroupRoot, cgroupPath, &cgroup2.Resources{
+		Memory: &cgroup2.Memory{
+			Max:  &memLimit,
+			Swap: ptr(int64(0)),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cgroup: create manager: %w", err)
 	}
 
-	memBytes := int64(memoryMB) * 1024 * 1024
-
-	if err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(strconv.FormatInt(memBytes, 10)), 0o644); err != nil {
-		cg.cleanup()
-		return nil, fmt.Errorf("cgroup: set memory.max: %w", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(path, "memory.swap.max"), []byte("0"), 0o644); err != nil {
-		cg.cleanup()
-		return nil, fmt.Errorf("cgroup: set memory.swap.max: %w", err)
-	}
-
-	return cg, nil
+	return &cgroupExec{mgr: mgr, path: cgroupPath}, nil
 }
 
-// addPID writes a process ID to cgroup.procs, moving the process into this cgroup.
+// addPID adds a process to this cgroup.
 func (c *cgroupExec) addPID(pid int) error {
-	return os.WriteFile(filepath.Join(c.path, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o644)
+	return c.mgr.AddProc(uint64(pid))
 }
 
-// cleanup kills any remaining processes and removes the cgroup directory.
-// Safe to call multiple times. Logs warnings on non-critical failures.
+// cleanup kills remaining processes and removes the cgroup directory.
 func (c *cgroupExec) cleanup() {
-	// Atomically signal all tasks to exit via cgroup.kill (Linux 5.14+).
-	// Silently ignored on older kernels — the per-PID kill below covers them.
-	_ = os.WriteFile(filepath.Join(c.path, "cgroup.kill"), []byte("1"), 0o644)
+	// Kill sends SIGKILL to all processes in the cgroup.
+	// Returns nil if empty, error if processes were killed.
+	_ = c.mgr.Kill()
 
-	// Per-PID SIGKILL for older kernels or any orphaned processes.
-	c.killProcs()
-
-	// Poll cgroup.procs until empty before removing the directory.
-	// SIGKILL is async — the kernel must finish reaping before the dir can be removed.
-	// 10 * 5ms = 50ms max wait.
-	for i := 0; i < 10; i++ {
-		data, err := os.ReadFile(filepath.Join(c.path, "cgroup.procs"))
-		if err != nil || strings.TrimSpace(string(data)) == "" {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-
-	if err := os.Remove(c.path); err != nil && !os.IsNotExist(err) {
-		slog.Warn("sandbox: cgroup cleanup failed", "path", c.path, "err", err)
-	}
+	// Delete the cgroup directory.
+	_ = c.mgr.Delete()
 }
 
-// killProcs sends SIGKILL to each PID listed in cgroup.procs.
-// ESRCH (process already gone) is silently ignored; EPERM is logged.
+// killProcs sends SIGKILL to each process in the cgroup (fallback for older kernels).
 func (c *cgroupExec) killProcs() {
 	data, err := os.ReadFile(filepath.Join(c.path, "cgroup.procs"))
 	if err != nil {
@@ -112,7 +92,7 @@ func (c *cgroupExec) killProcs() {
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		pid, err := strconv.Atoi(strings.TrimSpace(line))
 		if err != nil || pid <= 1 {
-			continue // skip invalid, PID 0, and PID 1 (init)
+			continue
 		}
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 			slog.Warn("sandbox: failed to kill cgroup process", "pid", pid, "err", err)
@@ -120,18 +100,44 @@ func (c *cgroupExec) killProcs() {
 	}
 }
 
-// cgroupAvailable returns true if cgroup v2 is mounted and the current process
-// has write access to create sub-directories (requires root or SYS_ADMIN cap).
+// cgroupAvailable returns true if:
+//   - cgroup v2 is mounted (cgroup.controllers exists under cgroupRoot)
+//   - the delegated path can be discovered from /proc/self/cgroup
+//   - 'memory' is listed in the delegated path's cgroup.controllers
+//
 // Result is cached after the first call.
 func cgroupAvailable() bool {
 	cgroupOnce.Do(func() {
-		if _, err := os.Stat(filepath.Join(cgroupRoot, "cgroup.controllers")); err != nil {
-			return
-		}
-		// Verify write access — creating sub-directories requires root or SYS_ADMIN.
-		cgroupAvailBool = unix.Access(cgroupRoot, unix.W_OK) == nil
+		cgroupAvailBool = checkCgroupAvailable()
 	})
 	return cgroupAvailBool
+}
+
+func checkCgroupAvailable() bool {
+	// Step 1: cgroup v2 mounted?
+	controllersFile := filepath.Join(cgroupRoot, "cgroup.controllers")
+	if _, err := os.Stat(controllersFile); err != nil {
+		return false
+	}
+
+	// Step 2: discover delegated path from /proc/self/cgroup.
+	delegated, ok := discoverDelegatedPath("/proc/self/cgroup")
+	if !ok {
+		return false
+	}
+	discoveredPath = delegated
+
+	// Step 3: memory controller available in the delegated cgroup?
+	ctrlFile := filepath.Join(delegated, "cgroup.controllers")
+	data, err := os.ReadFile(ctrlFile)
+	if err != nil {
+		return false
+	}
+	if !strings.Contains(string(data), "memory") {
+		return false
+	}
+
+	return true
 }
 
 func shortID() (string, error) {
@@ -141,3 +147,5 @@ func shortID() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+
+func ptr[T any](v T) *T { return &v }
