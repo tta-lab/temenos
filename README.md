@@ -133,6 +133,23 @@ The Docker image includes [Organon](https://github.com/tta-lab/organon) binaries
 - Request body capped at 1 MiB
 - Default execution timeout: 120s
 
+## Memory limits (Linux)
+
+When `--cgroupv2-memory-limit` is set, temenos enforces per-execution memory limits via cgroup v2. This requires running inside a Kubernetes pod with cgroup v2 delegation (memory + pids controllers delegated to the container).
+
+```bash
+# Set 128 MB memory limit per sandboxed exec
+temenos daemon --cgroupv2-memory-limit 128 start
+```
+
+**Requirements:**
+- Kubernetes pod with cgroup v2 mounted
+- Memory controller delegated to the container (default on most distros)
+- No `SYS_ADMIN` capability required — delegation provides the necessary permissions
+- The daemon fails fast at startup if the environment doesn't support it
+
+**Diagnostics:** `temenos sandbox status` shows the current cgroup v2 environment state.
+
 ## Development
 
 ```bash
