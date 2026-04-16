@@ -157,6 +157,10 @@ func TestBwrapSandbox_MemoryLimit_Degradation(t *testing.T) {
 	if execCgroupBase == "" {
 		t.Skip("execCgroupBase not set (requires full cgroup v2 init-leaf setup)")
 	}
+	// Verify bwrap is actually installed; IsAvailable checks PATH only.
+	if _, err := os.Stat(sbx.BwrapPath); err != nil {
+		t.Skip("bwrap not installed: " + sbx.BwrapPath)
+	}
 
 	// newCgroupExec requires cgroupReady to be set.
 	cgroupReady.Store(true)
