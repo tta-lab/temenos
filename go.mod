@@ -14,6 +14,7 @@ require (
 
 require (
 	github.com/cilium/ebpf v0.16.0 // indirect
+	github.com/containerd/log v0.1.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
