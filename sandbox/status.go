@@ -11,6 +11,12 @@ type Status struct {
 	InitLeafDone  bool   `json:"init_leaf_done"`
 }
 
+// inK8s is injected in tests. Defaults to the real inK8sPod.
+var inK8s = inK8sPod
+
+// cgroupAvailableStatus is injected in tests. Defaults to the real cgroupAvailable.
+var cgroupAvailableStatus = cgroupAvailable
+
 // CurrentStatus returns a snapshot of the cgroup v2 environment.
 func CurrentStatus() Status {
 	// Use execCgroupBase if init-leaf ran; otherwise use discoveredPath.
@@ -19,8 +25,8 @@ func CurrentStatus() Status {
 		base = discoveredPath
 	}
 	s := Status{
-		InK8sPod:      inK8sPod(),
-		CgroupV2:      cgroupAvailable(),
+		InK8sPod:      inK8s(),
+		CgroupV2:      cgroupAvailableStatus(),
 		DelegatedPath: base,
 		MemoryCtrl:    hasController(base, "memory"),
 		InitLeafDone:  initLeafSucceeded,
