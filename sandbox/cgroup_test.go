@@ -29,6 +29,10 @@ func TestNewCgroupExec_Integration(t *testing.T) {
 		t.Skip("cgroup v2 not available (requires systemd delegation subtree with memory controller)")
 	}
 
+	// newCgroupExec now requires cgroupReady to be set.
+	cgroupReady.Store(true)
+	t.Cleanup(func() { cgroupReady.Store(false) })
+
 	cg, err := newCgroupExec(128)
 	if err != nil {
 		t.Fatal(err)
