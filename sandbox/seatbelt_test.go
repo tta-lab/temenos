@@ -1,9 +1,11 @@
 //go:build darwin
+// +build darwin
 
 package sandbox
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,11 +15,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// requireSandboxExec skips the test if sandbox-exec is not available.
+// requireSandboxExec skips the test if sandbox-exec is not available or cannot be used.
 func requireSandboxExec(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat("/usr/bin/sandbox-exec"); err != nil {
 		t.Skip("sandbox-exec not available, skipping seatbelt integration test")
+	}
+	// Verify sandbox-exec actually works (not just present) by running a trivial policy.
+	// On macOS without proper entitlements, sandbox-exec exists but fails with
+	// "Operation not permitted" when applied.
+	if os.Getenv("CI") != "" {
+		// In CI, assume entitlements are configured correctly
+		return
+	}
+	// Try a trivial sandbox to verify it actually works
+	trivialPolicy := `(version 1) (allow default)`
+	cmd := exec.Command("/usr/bin/sandbox-exec", "-p", trivialPolicy, "--", "/bin/true")
+	if err := cmd.Run(); err != nil {
+		t.Skipf("sandbox-exec cannot be applied (missing entitlements?): %v", err)
 	}
 }
 
