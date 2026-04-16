@@ -16,7 +16,7 @@ func TestDiscoverDelegatedPath(t *testing.T) {
 		wantOk  bool
 	}{
 		{
-			name:    "v2 single line with memory delegated",
+			name:    "v2 single line deep path",
 			content: "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app.service\n",
 			want:    "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/app.service",
 			wantOk:  true,
@@ -35,7 +35,7 @@ func TestDiscoverDelegatedPath(t *testing.T) {
 		},
 		{
 			name:    "v1 multi-line ignored",
-			content: "12:memory:/user.slice/user-1000.slice/user@1000.service\n11:cpu,cpuacct:/user.slice/user-1000.slice/user@1000.service\n10:cpuset:/user.slice/user-1000.slice/user@1000.service\n",
+			content: "12:memory:/user.slice\n11:cpu,cpuacct:/user.slice\n",
 			want:    "",
 			wantOk:  false,
 		},
@@ -58,7 +58,7 @@ func TestDiscoverDelegatedPath(t *testing.T) {
 			wantOk:  false,
 		},
 		{
-			name:    "v2 with whitespace",
+			name:    "v2 whitespace path",
 			content: "0::/user.slice/user-1000.slice/user@1000.service\n",
 			want:    "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service",
 			wantOk:  true,

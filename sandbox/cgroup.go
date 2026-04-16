@@ -12,7 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/containerd/cgroups/v3/cgroup2"
 )
@@ -73,7 +74,7 @@ func (c *cgroupExec) cleanup() {
 		slog.Warn("sandbox: cgroup kill failed", "path", c.path, "err", err)
 	}
 	if c.fd != -1 {
-		syscall.Close(c.fd)
+		_ = unix.Close(c.fd)
 		c.fd = -1
 	}
 	if err := c.mgr.Delete(); err != nil {
