@@ -74,6 +74,8 @@ func TestStatusString(t *testing.T) {
 	}
 }
 
+const fakeCgroupPath = "/fake/cgroup/path"
+
 func TestCurrentStatus(t *testing.T) {
 	// Save and restore globals.
 	origExecCgroupBase := execCgroupBase
@@ -90,9 +92,9 @@ func TestCurrentStatus(t *testing.T) {
 	})
 
 	// Simulate post-init-leaf state.
-	execCgroupBase = "/fake/cgroup/path"
+	execCgroupBase = fakeCgroupPath
 	initLeafSucceeded = true
-	discoveredPath = "/fake/cgroup/path"
+	discoveredPath = fakeCgroupPath
 
 	// Stub both probes to return true.
 	inK8s = func() bool { return true }
@@ -106,8 +108,8 @@ func TestCurrentStatus(t *testing.T) {
 	if !status.InitLeafDone {
 		t.Error("InitLeafDone: want true")
 	}
-	if status.DelegatedPath != "/fake/cgroup/path" {
-		t.Errorf("DelegatedPath = %q, want /fake/cgroup/path", status.DelegatedPath)
+	if status.DelegatedPath != fakeCgroupPath {
+		t.Errorf("DelegatedPath = %q, want %s", status.DelegatedPath, fakeCgroupPath)
 	}
 	if !status.CgroupV2 {
 		t.Error("CgroupV2: want true")

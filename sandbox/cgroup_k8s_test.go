@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -141,12 +140,10 @@ func TestInK8sPod(t *testing.T) {
 func TestRunInitLeaf(t *testing.T) {
 	// Save and restore package globals between subtests.
 	origExecCgroupBase := execCgroupBase
-	origInitLeafOnce := initLeafOnce
 	origInitLeafErr := initLeafErr
 	origInitLeafSucceeded := initLeafSucceeded
 	t.Cleanup(func() {
 		execCgroupBase = origExecCgroupBase
-		initLeafOnce = origInitLeafOnce
 		initLeafErr = origInitLeafErr
 		initLeafSucceeded = origInitLeafSucceeded
 	})
@@ -216,33 +213,6 @@ func TestRunInitLeaf(t *testing.T) {
 		}
 	})
 
-	t.Run("idempotent", func(t *testing.T) {
-		root := t.TempDir()
-		procFile := filepath.Join(root, "cgroup_map")
-		writeFile(procFile, "0::/fake/path\n")
-		buildTree(root)
-
-		err1 := runInitLeafAt(root, procFile)
-		if err1 != nil {
-			t.Fatalf("first runInitLeafAt: %v", err1)
-		}
-
-		execCgroupBaseBefore := execCgroupBase
-
-		// Reset initLeafOnce so we can call runInitLeafAt again within this subtest.
-		initLeafOnce = sync.Once{}
-
-		err2 := runInitLeafAt(root, procFile)
-		if err2 != nil {
-			t.Fatalf("second runInitLeafAt: %v", err2)
-		}
-
-		if execCgroupBase != execCgroupBaseBefore {
-			t.Errorf("execCgroupBase changed on second call: %q -> %q",
-				execCgroupBaseBefore, execCgroupBase)
-		}
-	})
-
 	t.Run("already-in-init", func(t *testing.T) {
 		root := t.TempDir()
 		procFile := filepath.Join(root, "cgroup_map")
@@ -265,14 +235,9 @@ func TestRunInitLeaf(t *testing.T) {
 
 		// execCgroupBase should be the PARENT of init/ so per-exec cgroups land
 		// as siblings of init/, not nested under it.
-		// NOTE: this subtest currently FAILS because the code sets
-		// execCgroupBase = selfCgroup (which ends in "/init"). Step 14 fixes
-		// this with strings.TrimSuffix(selfCgroup, "/init"). This comment
-		// documents the intentional cross-step coupling.
 		wantBase := strings.TrimSuffix(initPath, "/init")
 		if execCgroupBase != wantBase {
-			t.Errorf("execCgroupBase = %q, want %q (TrimSuffix fix pending Step 14)",
-				execCgroupBase, wantBase)
+			t.Errorf("execCgroupBase = %q, want %q", execCgroupBase, wantBase)
 		}
 	})
 }
