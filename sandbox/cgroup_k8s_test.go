@@ -3,8 +3,11 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -133,4 +136,143 @@ func TestInK8sPod(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunInitLeaf(t *testing.T) {
+	// Save and restore package globals between subtests.
+	origExecCgroupBase := execCgroupBase
+	origInitLeafOnce := initLeafOnce
+	origInitLeafErr := initLeafErr
+	origInitLeafSucceeded := initLeafSucceeded
+	t.Cleanup(func() {
+		execCgroupBase = origExecCgroupBase
+		initLeafOnce = origInitLeafOnce
+		initLeafErr = origInitLeafErr
+		initLeafSucceeded = origInitLeafSucceeded
+	})
+
+	// writeFile is a helper to write content to a path, fatal on error.
+	writeFile := func(path, content string) {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("writeFile %s: %v", path, err)
+		}
+	}
+
+	// buildTree creates a minimal fake cgroup v2 tree under root:
+	//   root/
+	//     cgroup.controllers  — presence marks cgroup v2
+	//     cgroup.subtree_control
+	//     cgroup.procs
+	//     fake/
+	//       path/
+	//         cgroup.procs
+	buildTree := func(root string) {
+		writeFile(filepath.Join(root, "cgroup.controllers"), "memory pids cpu io")
+		writeFile(filepath.Join(root, "cgroup.subtree_control"), "")
+		writeFile(filepath.Join(root, "cgroup.procs"), "")
+		if err := os.MkdirAll(filepath.Join(root, "fake", "path"), 0o755); err != nil {
+			t.Fatalf("mkdir fake/path: %v", err)
+		}
+		writeFile(filepath.Join(root, "fake", "path", "cgroup.procs"), "")
+	}
+
+	t.Run("happy path", func(t *testing.T) {
+		root := t.TempDir()
+		procFile := filepath.Join(root, "cgroup_map")
+		writeFile(procFile, "0::/fake/path\n")
+		buildTree(root)
+
+		err := runInitLeafAt(root, procFile)
+		if err != nil {
+			t.Fatalf("runInitLeafAt: %v", err)
+		}
+
+		selfCgroup := filepath.Join(root, "fake", "path")
+
+		// init/ created and contains our PID.
+		initProcs := filepath.Join(selfCgroup, "init", "cgroup.procs")
+		data, err := os.ReadFile(initProcs)
+		if err != nil {
+			t.Fatalf("read init/cgroup.procs: %v", err)
+		}
+		pidStr := strings.TrimSpace(string(data))
+		if pidStr != fmt.Sprintf("%d", os.Getpid()) {
+			t.Errorf("init/cgroup.procs = %q, want %d", pidStr, os.Getpid())
+		}
+
+		// +memory written to selfCgroup/cgroup.subtree_control.
+		subtreeCtrl := filepath.Join(selfCgroup, "cgroup.subtree_control")
+		ctrlData, err := os.ReadFile(subtreeCtrl)
+		if err != nil {
+			t.Fatalf("read cgroup.subtree_control: %v", err)
+		}
+		if !strings.Contains(string(ctrlData), "memory") {
+			t.Errorf("cgroup.subtree_control = %q, want memory", string(ctrlData))
+		}
+
+		// execCgroupBase set to selfCgroup.
+		if execCgroupBase != selfCgroup {
+			t.Errorf("execCgroupBase = %q, want %q", execCgroupBase, selfCgroup)
+		}
+	})
+
+	t.Run("idempotent", func(t *testing.T) {
+		root := t.TempDir()
+		procFile := filepath.Join(root, "cgroup_map")
+		writeFile(procFile, "0::/fake/path\n")
+		buildTree(root)
+
+		err1 := runInitLeafAt(root, procFile)
+		if err1 != nil {
+			t.Fatalf("first runInitLeafAt: %v", err1)
+		}
+
+		execCgroupBaseBefore := execCgroupBase
+
+		// Reset initLeafOnce so we can call runInitLeafAt again within this subtest.
+		initLeafOnce = sync.Once{}
+
+		err2 := runInitLeafAt(root, procFile)
+		if err2 != nil {
+			t.Fatalf("second runInitLeafAt: %v", err2)
+		}
+
+		if execCgroupBase != execCgroupBaseBefore {
+			t.Errorf("execCgroupBase changed on second call: %q -> %q",
+				execCgroupBaseBefore, execCgroupBase)
+		}
+	})
+
+	t.Run("already-in-init", func(t *testing.T) {
+		root := t.TempDir()
+		procFile := filepath.Join(root, "cgroup_map")
+		// Simulate a daemon restart: we are already inside the init/ leaf.
+		writeFile(procFile, "0::/fake/path/init\n")
+		buildTree(root)
+
+		// Pre-create init/ and place our PID there.
+		initPath := filepath.Join(root, "fake", "path", "init")
+		if err := os.MkdirAll(initPath, 0o755); err != nil {
+			t.Fatalf("mkdir init: %v", err)
+		}
+		writeFile(filepath.Join(initPath, "cgroup.procs"),
+			fmt.Sprintf("%d\n", os.Getpid()))
+
+		err := runInitLeafAt(root, procFile)
+		if err != nil {
+			t.Fatalf("runInitLeafAt (already-in-init): %v", err)
+		}
+
+		// execCgroupBase should be the PARENT of init/ so per-exec cgroups land
+		// as siblings of init/, not nested under it.
+		// NOTE: this subtest currently FAILS because the code sets
+		// execCgroupBase = selfCgroup (which ends in "/init"). Step 14 fixes
+		// this with strings.TrimSuffix(selfCgroup, "/init"). This comment
+		// documents the intentional cross-step coupling.
+		wantBase := strings.TrimSuffix(initPath, "/init")
+		if execCgroupBase != wantBase {
+			t.Errorf("execCgroupBase = %q, want %q (TrimSuffix fix pending Step 14)",
+				execCgroupBase, wantBase)
+		}
+	})
 }

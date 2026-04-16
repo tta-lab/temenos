@@ -75,18 +75,19 @@ func setupInitLeaf() error {
 
 // runInitLeaf is the zero-arg wrapper. Tests should call runInitLeafAt for control.
 func runInitLeaf() error {
-	return runInitLeafAt(cgroupRoot)
+	return runInitLeafAt(cgroupRoot, "/proc/self/cgroup")
 }
 
 // runInitLeafAt performs the init-leaf migration under the given cgroup root.
 // root must be the absolute path to the cgroup v2 root (e.g. "/sys/fs/cgroup").
-func runInitLeafAt(root string) error {
+// procFile is the path to the cgroup membership file (normally "/proc/self/cgroup").
+func runInitLeafAt(root, procFile string) error {
 	cgroup2Root := filepath.Join(root, "cgroup.controllers")
 	if _, err := os.Stat(cgroup2Root); err != nil {
 		return fmt.Errorf("cgroup v2 not mounted: %w", err)
 	}
 
-	selfCgroup, ok := discoverDelegatedPath("/proc/self/cgroup")
+	selfCgroup, ok := discoverDelegatedPath(procFile)
 	if !ok {
 		return errors.New("cannot discover current cgroup path from /proc/self/cgroup")
 	}
