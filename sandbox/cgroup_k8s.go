@@ -18,6 +18,13 @@ import (
 // to the current cgroup if it's a cgroup v2 single-line entry. Returns ("", false)
 // for v1, empty file, or malformed input.
 func discoverDelegatedPath(procFile string) (string, bool) {
+	return discoverDelegatedPathAt(procFile, cgroupRoot)
+}
+
+// discoverDelegatedPathAt is the injectable variant; root is the cgroup v2 root
+// (e.g. "/sys/fs/cgroup"). Tests pass a temp root so the path resolution is
+// deterministic and independent of the host filesystem.
+func discoverDelegatedPathAt(procFile, root string) (string, bool) {
 	f, err := os.Open(procFile)
 	if err != nil {
 		return "", false
@@ -38,7 +45,7 @@ func discoverDelegatedPath(procFile string) (string, bool) {
 	if path == "" {
 		return "", false
 	}
-	return filepath.Join(cgroupRoot, path), true
+	return filepath.Join(root, path), true
 }
 
 // initLeafOnce ensures init-leaf migration runs exactly once.
@@ -87,7 +94,7 @@ func runInitLeafAt(root, procFile string) error {
 		return fmt.Errorf("cgroup v2 not mounted: %w", err)
 	}
 
-	selfCgroup, ok := discoverDelegatedPath(procFile)
+	selfCgroup, ok := discoverDelegatedPathAt(procFile, root)
 	if !ok {
 		return errors.New("cannot discover current cgroup path from /proc/self/cgroup")
 	}
