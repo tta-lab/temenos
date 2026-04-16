@@ -33,6 +33,8 @@ linters:
         - fmt.Fprintf
         - os.Mkdir
         - os.WriteFile
+        - syscall.Close
+        - syscall.Close
     revive:
       rules:
         - name: comment-spacings

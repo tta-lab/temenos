@@ -1,9 +1,8 @@
-//go:build linux
+//go:build darwin
 
 package sandbox
 
 import (
-	"cmp"
 	"log/slog"
 	"runtime"
 	"time"
@@ -11,23 +10,17 @@ import (
 
 // Options configures the sandbox constructor.
 type Options struct {
-	BwrapPath        string        // Linux only; defaults to "bwrap"
-	Timeout          time.Duration // default execution timeout
-	AllowUnsandboxed bool          // if true, fall back to NoopSandbox when no platform sandbox is found
-	MemoryLimitMB    int           // Linux only; cgroup v2 memory limit in MB; 0 = no limit
+	Timeout          time.Duration
+	AllowUnsandboxed bool
+	MemoryLimitMB    int // present but unused on darwin
 }
 
 // New creates the appropriate sandbox for the current platform.
 // On macOS, it returns a SeatbeltSandbox if sandbox-exec is available.
-// On Linux, it returns a BwrapSandbox if bwrap is available.
 // Falls back to NoopSandbox when AllowUnsandboxed is true and no platform sandbox is found.
 // Returns UnavailableSandbox when AllowUnsandboxed is false and no platform sandbox is found.
 func New(opts Options) Sandbox {
-	sbx := &BwrapSandbox{
-		BwrapPath:     cmp.Or(opts.BwrapPath, "bwrap"),
-		Timeout:       opts.Timeout,
-		MemoryLimitMB: opts.MemoryLimitMB,
-	}
+	sbx := &SeatbeltSandbox{Timeout: opts.Timeout}
 	if sbx.IsAvailable() {
 		return sbx
 	}

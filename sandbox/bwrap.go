@@ -1,3 +1,5 @@
+//go:build linux
+
 package sandbox
 
 import (
@@ -17,8 +19,7 @@ import (
 type BwrapSandbox struct {
 	BwrapPath     string
 	Timeout       time.Duration
-	MemoryLimitMB int  // 0 = no limit
-	RequireCgroup bool // if true, Exec returns an error when cgroup setup fails
+	MemoryLimitMB int // 0 = no limit
 }
 
 // Exec runs a bash command inside the bubblewrap sandbox.
@@ -33,34 +34,23 @@ func (s *BwrapSandbox) Exec(
 	cmd := exec.CommandContext(ctx, s.BwrapPath, args...)
 	cmd.Env = buildEnv(cfg, "/home/agent")
 
-	// Guard: no memory limit configured, or cgroup v2 not available (macOS, unprivileged).
+	// No memory limit configured, or cgroup v2 not available.
 	if s.MemoryLimitMB <= 0 || !cgroupAvailable() {
 		return runCmd(ctx, cmd)
 	}
 
 	cg, err := newCgroupExec(s.MemoryLimitMB)
 	if err != nil {
-		if s.RequireCgroup {
-			return "", "", -1, fmt.Errorf("sandbox: cgroup required but setup failed: %w", err)
-		}
-		slog.Warn("sandbox: cgroup setup failed, proceeding without memory limit", "err", err)
-		return runCmd(ctx, cmd)
+		return "", "", -1, fmt.Errorf("sandbox: cgroup setup failed: %w", err)
 	}
 	defer cg.cleanup()
 
-	// postStart adds bwrap's PID to the cgroup between Start() and Wait().
-	// If addPID fails and RequireCgroup is set, the process is killed and an error returned.
-	// Otherwise it runs unconstrained for this execution — logged but not fatal.
-	return runCmdWithHook(ctx, cmd, func(pid int) error {
-		if err := cg.addPID(pid); err != nil {
-			if s.RequireCgroup {
-				return fmt.Errorf("sandbox: failed to add PID to cgroup: %w", err)
-			}
-			slog.Warn("sandbox: failed to add PID to cgroup, execution runs without memory limit",
-				"pid", pid, "err", err)
-		}
-		return nil
-	})
+	// Set up cgroup FD for atomic child placement via clone3(CLONE_INTO_CGROUP).
+	if err := execWithCgroup(cmd, cg); err != nil {
+		return "", "", -1, err
+	}
+
+	return runCmd(ctx, cmd)
 }
 
 // IsAvailable checks whether bwrap is available at the configured path.
@@ -164,9 +154,4 @@ func coveredByStaticRoot(path string) bool {
 		}
 	}
 	return false
-}
-
-// isSubdirOf checks if child starts with parent + "/".
-func isSubdirOf(child, parent string) bool {
-	return len(child) > len(parent) && child[:len(parent)+1] == parent+"/"
 }

@@ -45,7 +45,10 @@ func listenAddr() (string, error) {
 }
 
 // Run starts the temenos daemon. Blocks until signal or server error.
-func Run(version string) error {
+// cgroupv2MemoryLimitMB is the memory limit in MB per sandbox execution.
+// When > 0, the daemon attempts to set up cgroup v2 init-leaf migration and fails
+// fast if setup fails (e.g. not in a k8s pod, cgroup v2 unavailable).
+func Run(version string, cgroupv2MemoryLimitMB int) error {
 	addr, err := listenAddr()
 	if err != nil {
 		return err
@@ -59,16 +62,18 @@ func Run(version string) error {
 		}
 	}
 
-	memLimitMB, err := parseMemoryLimitMB()
-	if err != nil {
-		return err
+	// Fail fast: if memory limit is requested, cgroup v2 setup must succeed.
+	if cgroupv2MemoryLimitMB > 0 {
+		if err := sandbox.SetupCgroupV2(); err != nil {
+			return fmt.Errorf("temenos: cgroup v2 setup failed (is this a k8s pod with cgroup v2 delegation?): %w", err)
+		}
+		slog.Info("temenos: cgroup v2 memory limits enabled", "limit_mb", cgroupv2MemoryLimitMB)
 	}
 
 	sbx := sandbox.New(sandbox.Options{
 		Timeout:          sandbox.DefaultTimeout,
 		AllowUnsandboxed: false,
-		MemoryLimitMB:    memLimitMB,
-		RequireCgroup:    parseRequireCgroup(),
+		MemoryLimitMB:    cgroupv2MemoryLimitMB,
 	})
 
 	// Phase 2: tracker will be passed to handleRun for /ps and /kill support.

@@ -5,11 +5,13 @@ import (
 	"github.com/tta-lab/temenos/internal/daemon"
 )
 
+var cgroupv2MemoryLimitMB int
+
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
 	Short: "Run the temenos sandbox daemon",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return daemon.Run(Version)
+		return daemon.Run(Version, cgroupv2MemoryLimitMB)
 	},
 }
 
@@ -69,4 +71,12 @@ func init() {
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonRestartCmd)
+
+	daemonCmd.PersistentFlags().IntVarP(
+		&cgroupv2MemoryLimitMB,
+		"cgroupv2-memory-limit",
+		"m",
+		0,
+		"cgroup v2 memory limit per exec in MB (requires k8s pod; daemon exits on setup failure when > 0)",
+	)
 }

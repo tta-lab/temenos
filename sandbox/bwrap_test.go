@@ -1,3 +1,5 @@
+//go:build linux
+
 package sandbox
 
 import (
@@ -146,6 +148,18 @@ func TestBwrapSandbox_MemoryLimit_Degradation(t *testing.T) {
 	}
 	if !sbx.IsAvailable() {
 		t.Skip("bwrap not available")
+	}
+	if !cgroupAvailable() {
+		t.Skip("cgroup v2 not available")
+	}
+	// Requires execCgroupBase to be set (full daemon init-leaf setup).
+	// In CI the cgroup path can't be discovered, so skip.
+	if execCgroupBase == "" {
+		t.Skip("execCgroupBase not set (requires full cgroup v2 init-leaf setup)")
+	}
+	// Verify bwrap is actually installed; IsAvailable checks PATH only.
+	if _, err := os.Stat(sbx.BwrapPath); err != nil {
+		t.Skip("bwrap not installed: " + sbx.BwrapPath)
 	}
 
 	stdout, stderr, exitCode, err := sbx.Exec(context.Background(), "echo hello", nil)

@@ -1,8 +1,11 @@
+//go:build linux
+
 package sandbox
 
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"runtime"
 	"testing"
@@ -154,4 +157,8 @@ func TestTruncate(t *testing.T) {
 	long := "12345678901234567890"
 	result := truncate(long, 10)
 	assert.Equal(t, "1234567890\n[output truncated]", result)
+}
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
 }
