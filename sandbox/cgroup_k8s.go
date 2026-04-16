@@ -157,9 +157,8 @@ func inK8sPod() bool {
 	if !statCgroupControllers() {
 		return false
 	}
-	// Then check the env var.
-	_, ok := os.LookupEnv("KUBERNETES_SERVICE_HOST")
-	return ok
+	// Then check the env var. An empty value is semantically unset.
+	return os.Getenv("KUBERNETES_SERVICE_HOST") != ""
 }
 
 // SetupCgroupV2 performs one-time cgroup v2 init-leaf setup.
