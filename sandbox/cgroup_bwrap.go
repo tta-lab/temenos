@@ -14,7 +14,8 @@ import (
 // SysProcAttr for CLONE_INTO_CGROUP. The fd stays alive as part of cg.fd
 // (kept by the caller's defer of cg.cleanup()) until after cmd.Start().
 func execWithCgroup(cmd *exec.Cmd, cg *cgroupExec) error {
-	// O_CLOEXEC ensures the fd is not inherited by other execs.
+	// O_CLOEXEC keeps the fd out of exec'd child processes;
+	// clone3 reads it in the parent before the child exec()s.
 	fd, err := unix.Open(cg.path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return fmt.Errorf("sandbox: open cgroup dir: %w", err)
