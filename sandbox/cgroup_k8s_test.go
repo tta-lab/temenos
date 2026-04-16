@@ -86,32 +86,27 @@ func TestDiscoverDelegatedPath(t *testing.T) {
 }
 
 func TestInK8sPod(t *testing.T) {
-	// Skip if running as root — writing to /sys/fs/cgroup would modify the live cgroup fs.
-	if os.Getuid() == 0 {
-		t.Skip("skipping: writing to /sys/fs/cgroup is destructive as root")
-	}
-
 	tests := []struct {
 		name    string
-		env     map[string]string
+		envSet  bool
 		cgroup2 bool
 		want    bool
 	}{
 		{
 			name:    "kubernetes env set and cgroup2 mounted",
-			env:     map[string]string{"KUBERNETES_SERVICE_HOST": "10.96.0.1"},
+			envSet:  true,
 			cgroup2: true,
 			want:    true,
 		},
 		{
 			name:    "kubernetes env set but cgroup v1",
-			env:     map[string]string{"KUBERNETES_SERVICE_HOST": "10.96.0.1"},
+			envSet:  true,
 			cgroup2: false,
 			want:    false,
 		},
 		{
 			name:    "kubernetes env not set",
-			env:     map[string]string{},
+			envSet:  false,
 			cgroup2: true,
 			want:    false,
 		},
@@ -119,14 +114,17 @@ func TestInK8sPod(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			for k, v := range tc.env {
-				t.Setenv(k, v)
-			}
-			if tc.cgroup2 {
-				cgroupFile := filepath.Join(cgroupRoot, "cgroup.controllers")
-				if err := os.WriteFile(cgroupFile, []byte("memory pids cpu io"), 0o644); err != nil {
-					t.Skipf("cannot write cgroup.controllers (requires root?): %v", err)
-				}
+			// Save and restore the injected hook.
+			orig := statCgroupControllers
+			defer func() { statCgroupControllers = orig }()
+
+			statCgroupControllers = func() bool { return tc.cgroup2 }
+
+			// t.Setenv is safe even when unset (clears the var).
+			if tc.envSet {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+			} else {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "")
 			}
 
 			got := inK8sPod()
