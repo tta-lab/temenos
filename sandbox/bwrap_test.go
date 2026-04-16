@@ -162,10 +162,6 @@ func TestBwrapSandbox_MemoryLimit_Degradation(t *testing.T) {
 		t.Skip("bwrap not installed: " + sbx.BwrapPath)
 	}
 
-	// newCgroupExec requires cgroupReady to be set.
-	cgroupReady.Store(true)
-	t.Cleanup(func() { cgroupReady.Store(false) })
-
 	stdout, stderr, exitCode, err := sbx.Exec(context.Background(), "echo hello", nil)
 	if err != nil {
 		t.Fatalf("Exec failed: %v (stderr: %s)", err, stderr)
