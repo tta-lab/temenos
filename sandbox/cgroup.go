@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/containerd/cgroups/v3/cgroup2"
+	"golang.org/x/sys/unix"
 )
 
 // Call graph:
@@ -132,7 +133,8 @@ func checkCgroupAvailableAt(root string) bool {
 	}
 	discoveredPath = delegated
 
-	return hasController(delegated, "memory")
+	return hasController(delegated, "memory") &&
+		unix.Access(delegated, unix.W_OK) == nil
 }
 
 // hasController returns true if controller (e.g. "memory") is listed in
