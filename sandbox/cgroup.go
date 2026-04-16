@@ -12,10 +12,18 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/containerd/cgroups/v3/cgroup2"
 )
+
+// Call graph:
+//
+// daemon.Run → SetupCgroupV2 → setupInitLeaf → runInitLeaf  (one-time)
+//
+// per-exec:
+//   BwrapSandbox.Exec → newCgroupExec → execWithCgroup → cmd.Start → defer cleanup
 
 const (
 	cgroupRoot   = "/sys/fs/cgroup"
@@ -24,6 +32,7 @@ const (
 
 var (
 	cgroupOnce      sync.Once
+	cgroupReady     atomic.Bool
 	cgroupAvailBool bool
 	discoveredPath  string
 )
@@ -37,6 +46,11 @@ type cgroupExec struct {
 
 // newCgroupExec creates a cgroup sub-directory and sets memory.max + memory.swap.max.
 func newCgroupExec(memoryMB int) (*cgroupExec, error) {
+	// Defense-in-depth: refuse to create per-exec cgroups before init-leaf ran.
+	if !cgroupReady.Load() {
+		return nil, errors.New("cgroup: cgroup v2 not initialized (SetupCgroupV2 must succeed first)")
+	}
+
 	id, err := shortID()
 	if err != nil {
 		return nil, fmt.Errorf("cgroup: generate id: %w", err)

@@ -93,8 +93,10 @@ func runInitLeafAt(root, procFile string) error {
 	}
 
 	// If already inside init/, nothing to do.
+	// Trim /init so execCgroupBase points to the PARENT, placing new per-exec
+	// cgroups as siblings of init/ rather than nesting them under init/.
 	if strings.HasSuffix(selfCgroup, "/init") || selfCgroup == root+"/init" {
-		execCgroupBase = selfCgroup
+		execCgroupBase = strings.TrimSuffix(selfCgroup, "/init")
 		return nil
 	}
 
@@ -172,5 +174,6 @@ func SetupCgroupV2() error {
 	if !cgroupAvailable() {
 		return errors.New("cgroup v2 with memory delegation not available after init-leaf setup")
 	}
+	cgroupReady.Store(true)
 	return nil
 }
