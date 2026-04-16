@@ -50,6 +50,10 @@ var initLeafErr error
 // initLeafSucceeded is true when setupInitLeaf was called and succeeded.
 var initLeafSucceeded bool
 
+// execCgroupBase is the path under which per-exec cgroups are created.
+// Set by setupInitLeaf after migration (so it refers to selfCgroup, not selfCgroup/init).
+var execCgroupBase string
+
 // setupInitLeaf migrates the current process into a leaf sub-cgroup ("init/")
 // so that we can enable +memory on our parent without violating the
 // cgroup v2 "no internal processes" rule. Idempotent: subsequent calls
@@ -75,6 +79,7 @@ func runInitLeaf() error {
 
 	// If already inside init/, nothing to do.
 	if strings.HasSuffix(selfCgroup, "/init") || selfCgroup == cgroupRoot+"/init" {
+		execCgroupBase = selfCgroup
 		return nil
 	}
 
@@ -90,18 +95,18 @@ func runInitLeaf() error {
 		return fmt.Errorf("migrate self to %s: %w", procsFile, err)
 	}
 
-	// Enable +memory on the init/ cgroup's subtree_control so that
-	// newCgroupExec can create memory-limited children under init/.
-	// This write succeeds because init/ is a leaf (no internal processes).
-	if err := enableMemoryController(initDir); err != nil {
-		return fmt.Errorf("enable +memory on %s: %w", filepath.Join(initDir, "cgroup.subtree_control"), err)
-	}
-
-	// Also ensure +memory is enabled on the parent cgroup's subtree_control.
-	// This covers the case where the parent doesn't yet have memory delegated.
+	// Now selfCgroup has no internal processes (daemon is in selfCgroup/init/).
+	// Enable +memory on selfCgroup's subtree_control so that newCgroupExec
+	// can create memory-limited children under selfCgroup/temenos-exec-*.
+	// Note: we write to selfCgroup/cgroup.subtree_control, NOT init/cgroup.subtree_control.
+	// Exec cgroups are created as siblings of init/, both under selfCgroup.
 	if err := enableMemoryController(selfCgroup); err != nil {
 		return fmt.Errorf("enable +memory on %s: %w", filepath.Join(selfCgroup, "cgroup.subtree_control"), err)
 	}
+
+	// Set execCgroupBase to selfCgroup so that newCgroupExec creates
+	// per-exec cgroups as siblings of init/ under selfCgroup.
+	execCgroupBase = selfCgroup
 
 	return nil
 }

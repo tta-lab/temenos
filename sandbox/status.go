@@ -13,18 +13,18 @@ type Status struct {
 
 // CurrentStatus returns a snapshot of the cgroup v2 environment.
 func CurrentStatus() Status {
+	// Use execCgroupBase if init-leaf ran; otherwise use discoveredPath.
+	base := execCgroupBase
+	if base == "" {
+		base = discoveredPath
+	}
 	s := Status{
 		InK8sPod:      inK8sPod(),
 		CgroupV2:      cgroupAvailable(),
-		DelegatedPath: discoveredPath,
-		MemoryCtrl:    hasController(discoveredPath, "memory"),
+		DelegatedPath: base,
+		MemoryCtrl:    hasController(base, "memory"),
+		InitLeafDone:  initLeafSucceeded,
 	}
-	// InitLeafDone is true when init-leaf setup was actually invoked and succeeded.
-	// initLeafErr is nil only if setupInitLeaf() has been called AND succeeded.
-	// If setupInitLeaf() was never called, initLeafErr is nil and initLeafDone
-	// would be false — but we need a way to distinguish "never called" from
-	// "called and succeeded". Use a separate boolean flag.
-	s.InitLeafDone = initLeafSucceeded
 	return s
 }
 

@@ -12,8 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"golang.org/x/sys/unix"
+	"syscall"
 
 	"github.com/containerd/cgroups/v3/cgroup2"
 )
@@ -30,7 +29,6 @@ var (
 )
 
 // cgroupExec manages a per-execution cgroup v2 sub-group with memory limits.
-// Wraps cgroup2.Manager.
 type cgroupExec struct {
 	mgr  *cgroup2.Manager
 	path string // e.g. /sys/fs/cgroup/user.slice/.../temenos-exec-a1b2c3d4
@@ -38,21 +36,25 @@ type cgroupExec struct {
 }
 
 // newCgroupExec creates a cgroup sub-directory and sets memory.max + memory.swap.max.
-// Returns an error if cgroup creation or configuration fails.
 func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 	id, err := shortID()
 	if err != nil {
 		return nil, fmt.Errorf("cgroup: generate id: %w", err)
 	}
 
-	delegatedPath, ok := discoverDelegatedPath("/proc/self/cgroup")
-	if !ok {
-		return nil, errors.New(
-			"cgroup: cannot discover delegated path from /proc/self/cgroup",
-		)
+	// Use execCgroupBase if set (post-init-leaf), otherwise fall back to discovery.
+	basePath := execCgroupBase
+	if basePath == "" {
+		var ok bool
+		basePath, ok = discoverDelegatedPath("/proc/self/cgroup")
+		if !ok {
+			return nil, errors.New(
+				"cgroup: cannot discover delegated path from /proc/self/cgroup",
+			)
+		}
 	}
 
-	cgroupPath := filepath.Join(delegatedPath, cgroupPrefix+id)
+	cgroupPath := filepath.Join(basePath, cgroupPrefix+id)
 
 	memLimit := int64(memoryMB) * 1024 * 1024
 	mgr, err := cgroup2.NewManager(cgroupRoot, cgroupPath, &cgroup2.Resources{
@@ -74,7 +76,7 @@ func (c *cgroupExec) cleanup() {
 		slog.Warn("sandbox: cgroup kill failed", "path", c.path, "err", err)
 	}
 	if c.fd != -1 {
-		_ = unix.Close(c.fd)
+		syscall.Close(c.fd)
 		c.fd = -1
 	}
 	if err := c.mgr.Delete(); err != nil {
@@ -84,7 +86,6 @@ func (c *cgroupExec) cleanup() {
 
 // cgroupAvailable returns true if cgroup v2 is mounted, the delegated path is
 // discoverable, and 'memory' is in the delegated cgroup's controllers.
-// Result is cached after the first call.
 func cgroupAvailable() bool {
 	cgroupOnce.Do(func() {
 		cgroupAvailBool = checkCgroupAvailable()
