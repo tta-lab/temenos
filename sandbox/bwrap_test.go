@@ -152,6 +152,11 @@ func TestBwrapSandbox_MemoryLimit_Degradation(t *testing.T) {
 	if !cgroupAvailable() {
 		t.Skip("cgroup v2 not available")
 	}
+	// Requires execCgroupBase to be set (full daemon init-leaf setup).
+	// In CI the cgroup path can't be discovered, so skip.
+	if execCgroupBase == "" {
+		t.Skip("execCgroupBase not set (requires full cgroup v2 init-leaf setup)")
+	}
 
 	// newCgroupExec requires cgroupReady to be set.
 	cgroupReady.Store(true)
