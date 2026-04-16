@@ -3,22 +3,41 @@
 package sandbox
 
 // cgroupExec is a no-op on non-Linux platforms.
+//
+//nolint:unused
 type cgroupExec struct{}
 
+// newCgroupExec is a no-op on non-Linux.
+//
+//nolint:unused
 func newCgroupExec(_ int) (*cgroupExec, error) { return nil, nil }
-func (c *cgroupExec) addPID(_ int) error       { return nil }
-func (c *cgroupExec) cleanup()                 {}
+
+// addPID is a no-op on non-Linux.
+//
+//nolint:unused
+func (c *cgroupExec) addPID(_ int) error { return nil }
+
+// cleanup is a no-op on non-Linux.
+//
+//nolint:unused
+func (c *cgroupExec) cleanup() {}
 
 // cgroupAvailable always returns false on non-Linux platforms.
 func cgroupAvailable() bool { return false }
 
 // discoverDelegatedPath always returns ("", false) on non-Linux.
+//
+//nolint:unused
 func discoverDelegatedPath(_ string) (string, bool) { return "", false }
 
 // setupInitLeaf always returns nil on non-Linux.
+//
+//nolint:unused
 func setupInitLeaf() error { return nil }
 
 // inK8sPod always returns false on non-Linux.
+//
+//nolint:unused
 func inK8sPod() bool { return false }
 
 // SetupCgroupV2 always returns nil on non-Linux.

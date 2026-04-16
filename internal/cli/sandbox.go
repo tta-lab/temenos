@@ -2,7 +2,7 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 	"github.com/tta-lab/temenos/sandbox"
@@ -23,7 +23,7 @@ var sandboxStatusCmd = &cobra.Command{
 			enc.SetIndent("", "  ")
 			return enc.Encode(status)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), status.String())
+		_, _ = io.WriteString(cmd.OutOrStdout(), status.String()+"\n")
 		return nil
 	},
 }

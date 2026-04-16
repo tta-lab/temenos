@@ -77,6 +77,6 @@ func init() {
 		"cgroupv2-memory-limit",
 		"m",
 		0,
-		"set cgroup v2 memory limit per sandbox execution in MB (requires k8s pod with cgroup v2 delegation; daemon exits hard on setup failure when > 0)",
+		"cgroup v2 memory limit per exec in MB (requires k8s pod; daemon exits on setup failure when > 0)",
 	)
 }
