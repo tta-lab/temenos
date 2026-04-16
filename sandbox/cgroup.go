@@ -70,8 +70,15 @@ func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 
 	cgroupPath := filepath.Join(basePath, cgroupPrefix+id)
 
+	// Strip cgroupRoot to get the relative path. cgroup2.NewManager joins
+	// cgroupRoot + group internally and rejects absolute paths in group.
+	relativePath, ok := strings.CutPrefix(cgroupPath, cgroupRoot)
+	if !ok || relativePath == "" {
+		return nil, fmt.Errorf("cgroup: path %q is not under cgroupRoot %q", cgroupPath, cgroupRoot)
+	}
+
 	memLimit := int64(memoryMB) * 1024 * 1024
-	mgr, err := cgroup2.NewManager(cgroupRoot, cgroupPath, &cgroup2.Resources{
+	mgr, err := cgroup2.NewManager(cgroupRoot, relativePath, &cgroup2.Resources{
 		Memory: &cgroup2.Memory{
 			Max:  &memLimit,
 			Swap: ptr(int64(0)),
