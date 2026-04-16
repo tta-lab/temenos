@@ -143,3 +143,19 @@ func detectK8s() bool {
 	}
 	return true
 }
+
+// SetupCgroupV2 performs one-time cgroup v2 init-leaf setup required for
+// per-exec memory limits to work inside k8s pods. Call once at daemon startup
+// when --cgroupv2-memory-limit is set. Returns an error if setup fails.
+func SetupCgroupV2() error {
+	if !inK8sPod() {
+		return errors.New("not running inside a Kubernetes pod (KUBERNETES_SERVICE_HOST not set or cgroup v2 not mounted)")
+	}
+	if err := setupInitLeaf(); err != nil {
+		return err
+	}
+	if !cgroupAvailable() {
+		return errors.New("cgroup v2 with memory delegation not available after init-leaf setup")
+	}
+	return nil
+}

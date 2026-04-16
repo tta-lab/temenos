@@ -20,3 +20,6 @@ func setupInitLeaf() error { return nil }
 
 // inK8sPod always returns false on non-Linux.
 func inK8sPod() bool { return false }
+
+// SetupCgroupV2 always returns nil on non-Linux.
+func SetupCgroupV2() error { return nil }
