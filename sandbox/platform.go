@@ -9,11 +9,10 @@ import (
 
 // Options configures the sandbox constructor.
 type Options struct {
-	BwrapPath        string // Linux only; defaults to "bwrap"
-	Timeout          time.Duration
-	AllowUnsandboxed bool // if true, fall back to NoopSandbox when no platform sandbox is found
-	MemoryLimitMB    int  // Linux only; 0 = no limit. Requires cgroup v2 + SYS_ADMIN.
-	RequireCgroup    bool // Linux only; if true, Exec returns an error when cgroup setup fails
+	BwrapPath        string        // Linux only; defaults to "bwrap"
+	Timeout          time.Duration // default execution timeout
+	AllowUnsandboxed bool          // if true, fall back to NoopSandbox when no platform sandbox is found
+	MemoryLimitMB    int           // Linux only; cgroup v2 memory limit in MB; 0 = no limit
 }
 
 // New creates the appropriate sandbox for the current platform.
@@ -33,7 +32,6 @@ func New(opts Options) Sandbox {
 			BwrapPath:     cmp.Or(opts.BwrapPath, "bwrap"),
 			Timeout:       opts.Timeout,
 			MemoryLimitMB: opts.MemoryLimitMB,
-			RequireCgroup: opts.RequireCgroup,
 		}
 		if sbx.IsAvailable() {
 			return sbx
