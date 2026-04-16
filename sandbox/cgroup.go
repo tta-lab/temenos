@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/containerd/cgroups/v3/cgroup2"
 )
@@ -23,8 +25,7 @@ const (
 var (
 	cgroupOnce      sync.Once
 	cgroupAvailBool bool
-	// discoveredPath holds the delegated cgroup path discovered at availability check time.
-	discoveredPath string
+	discoveredPath  string
 )
 
 // cgroupExec manages a per-execution cgroup v2 sub-group with memory limits.
@@ -32,6 +33,7 @@ var (
 type cgroupExec struct {
 	mgr  *cgroup2.Manager
 	path string // e.g. /sys/fs/cgroup/user.slice/.../temenos-exec-a1b2c3d4
+	fd   int    // cgroup dir FD for UseCgroupFD; -1 if not set
 }
 
 // newCgroupExec creates a cgroup sub-directory and sets memory.max + memory.swap.max.
@@ -42,8 +44,6 @@ func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 		return nil, fmt.Errorf("cgroup: generate id: %w", err)
 	}
 
-	// Discover the delegated path — required for cgroup v2 delegation to work.
-	// This is cached by cgroupAvailable() so subsequent calls are free.
 	delegatedPath, ok := discoverDelegatedPath("/proc/self/cgroup")
 	if !ok {
 		return nil, errors.New(
@@ -64,26 +64,25 @@ func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 		return nil, fmt.Errorf("cgroup: create manager: %w", err)
 	}
 
-	return &cgroupExec{mgr: mgr, path: cgroupPath}, nil
+	return &cgroupExec{mgr: mgr, path: cgroupPath, fd: -1}, nil
 }
 
-// addPID adds a process to this cgroup.
-
-// cleanup kills remaining processes and removes the cgroup directory.
+// cleanup kills remaining processes, closes the cgroup FD, and removes the cgroup directory.
 func (c *cgroupExec) cleanup() {
-	// Kill sends SIGKILL to all processes in the cgroup.
-	// Returns nil if empty, error if processes were killed.
-	_ = c.mgr.Kill()
-
-	// Delete the cgroup directory.
-	_ = c.mgr.Delete()
+	if err := c.mgr.Kill(); err != nil {
+		slog.Warn("sandbox: cgroup kill failed", "path", c.path, "err", err)
+	}
+	if c.fd != -1 {
+		syscall.Close(c.fd)
+		c.fd = -1
+	}
+	if err := c.mgr.Delete(); err != nil {
+		slog.Warn("sandbox: cgroup delete failed", "path", c.path, "err", err)
+	}
 }
 
-// cgroupAvailable returns true if:
-//   - cgroup v2 is mounted (cgroup.controllers exists under cgroupRoot)
-//   - the delegated path can be discovered from /proc/self/cgroup
-//   - 'memory' is listed in the delegated path's cgroup.controllers
-//
+// cgroupAvailable returns true if cgroup v2 is mounted, the delegated path is
+// discoverable, and 'memory' is in the delegated cgroup's controllers.
 // Result is cached after the first call.
 func cgroupAvailable() bool {
 	cgroupOnce.Do(func() {
@@ -93,30 +92,25 @@ func cgroupAvailable() bool {
 }
 
 func checkCgroupAvailable() bool {
-	// Step 1: cgroup v2 mounted?
 	controllersFile := filepath.Join(cgroupRoot, "cgroup.controllers")
 	if _, err := os.Stat(controllersFile); err != nil {
 		return false
 	}
 
-	// Step 2: discover delegated path from /proc/self/cgroup.
 	delegated, ok := discoverDelegatedPath("/proc/self/cgroup")
 	if !ok {
 		return false
 	}
 	discoveredPath = delegated
 
-	// Step 3: memory controller available in the delegated cgroup?
-	ctrlFile := filepath.Join(delegated, "cgroup.controllers")
-	data, err := os.ReadFile(ctrlFile)
-	if err != nil {
-		return false
-	}
-	if !strings.Contains(string(data), "memory") {
-		return false
-	}
+	return hasController(delegated, "memory")
+}
 
-	return true
+// hasController returns true if controller (e.g. "memory") is listed in
+// the cgroup.controllers file of path.
+func hasController(path, controller string) bool {
+	data, err := os.ReadFile(filepath.Join(path, "cgroup.controllers"))
+	return err == nil && strings.Contains(string(data), controller)
 }
 
 func shortID() (string, error) {

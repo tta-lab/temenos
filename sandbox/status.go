@@ -2,11 +2,6 @@
 
 package sandbox
 
-import (
-	"os"
-	"strings"
-)
-
 // Status describes the current cgroup v2 environment.
 type Status struct {
 	InK8sPod      bool   `json:"in_k8s_pod"`
@@ -18,29 +13,21 @@ type Status struct {
 
 // CurrentStatus returns a snapshot of the cgroup v2 environment.
 func CurrentStatus() Status {
-	return Status{
+	s := Status{
 		InK8sPod:      inK8sPod(),
 		CgroupV2:      cgroupAvailable(),
 		DelegatedPath: discoveredPath,
-		MemoryCtrl:    hasMemoryController(),
-		InitLeafDone:  initLeafErr == nil && discoveredPath != "",
+		MemoryCtrl:    hasController(discoveredPath, "memory"),
 	}
+	// InitLeafDone is true when init-leaf setup was actually invoked and succeeded.
+	// initLeafErr is nil only if setupInitLeaf() has been called AND succeeded.
+	// If setupInitLeaf() was never called, initLeafErr is nil and initLeafDone
+	// would be false — but we need a way to distinguish "never called" from
+	// "called and succeeded". Use a separate boolean flag.
+	s.InitLeafDone = initLeafSucceeded
+	return s
 }
 
-// hasMemoryController returns true if 'memory' is in the cgroup.controllers of
-// the discovered delegated path.
-func hasMemoryController() bool {
-	if discoveredPath == "" {
-		return false
-	}
-	data, err := os.ReadFile(discoveredPath + "/cgroup.controllers")
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(data), "memory")
-}
-
-// String returns a human-readable summary.
 func (s Status) String() string {
 	switch {
 	case !s.CgroupV2:

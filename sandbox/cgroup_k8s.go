@@ -26,21 +26,18 @@ func discoverDelegatedPath(procFile string) (string, bool) {
 
 	scanner := bufio.NewScanner(f)
 	if !scanner.Scan() {
-		// Empty file.
 		return "", false
 	}
 	line := scanner.Text()
 
 	// cgroup v2: single line "0::<path>"
 	if !strings.HasPrefix(line, "0::") {
-		// v1 or malformed — treat as unavailable.
 		return "", false
 	}
 	path := strings.TrimPrefix(line, "0::")
 	if path == "" {
 		return "", false
 	}
-	// Prepend the cgroup root.
 	return filepath.Join(cgroupRoot, path), true
 }
 
@@ -50,6 +47,9 @@ var initLeafOnce sync.Once
 // initLeafErr holds the result of the one-time init-leaf setup.
 var initLeafErr error
 
+// initLeafSucceeded is true when setupInitLeaf was called and succeeded.
+var initLeafSucceeded bool
+
 // setupInitLeaf migrates the current process into a leaf sub-cgroup ("init/")
 // so that we can enable +memory on our parent without violating the
 // cgroup v2 "no internal processes" rule. Idempotent: subsequent calls
@@ -57,18 +57,17 @@ var initLeafErr error
 func setupInitLeaf() error {
 	initLeafOnce.Do(func() {
 		initLeafErr = runInitLeaf()
+		initLeafSucceeded = initLeafErr == nil
 	})
 	return initLeafErr
 }
 
 func runInitLeaf() error {
-	// Guard: require cgroup v2.
 	cgroup2Root := filepath.Join(cgroupRoot, "cgroup.controllers")
 	if _, err := os.Stat(cgroup2Root); err != nil {
 		return fmt.Errorf("cgroup v2 not mounted: %w", err)
 	}
 
-	// Discover the current delegated path.
 	selfCgroup, ok := discoverDelegatedPath("/proc/self/cgroup")
 	if !ok {
 		return errors.New("cannot discover current cgroup path from /proc/self/cgroup")
@@ -86,7 +85,6 @@ func runInitLeaf() error {
 	}
 
 	// Move the current process into init/.
-	// Write our PID to cgroup.procs of init/.
 	procsFile := filepath.Join(initDir, "cgroup.procs")
 	if err := os.WriteFile(procsFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644); err != nil {
 		return fmt.Errorf("migrate self to %s: %w", procsFile, err)
@@ -102,14 +100,11 @@ func runInitLeaf() error {
 		if !errors.Is(err, unix.EBUSY) {
 			return fmt.Errorf("enable +memory on %s: %w", subtreeCtrl, err)
 		}
-		// EBUSY on first attempt: might be a transient kernel state; retry once.
 	}
 	return errors.New("enable +memory on subtree_control: EBUSY after retry")
 }
 
 // inK8sPod returns true when temenos is running inside a Kubernetes pod.
-// Detection checks: KUBERNETES_SERVICE_HOST env var present AND cgroup v2
-// is mounted at /sys/fs/cgroup.
 func inK8sPod() bool {
 	_, k8sEnv := os.LookupEnv("KUBERNETES_SERVICE_HOST")
 	if !k8sEnv {
@@ -120,9 +115,8 @@ func inK8sPod() bool {
 	return err == nil
 }
 
-// SetupCgroupV2 performs one-time cgroup v2 init-leaf setup required for
-// per-exec memory limits to work inside k8s pods. Call once at daemon startup
-// when --cgroupv2-memory-limit is set. Returns an error if setup fails.
+// SetupCgroupV2 performs one-time cgroup v2 init-leaf setup.
+// Call once at daemon startup when --cgroupv2-memory-limit is set.
 func SetupCgroupV2() error {
 	if !inK8sPod() {
 		return errors.New("not running inside a Kubernetes pod (KUBERNETES_SERVICE_HOST not set or cgroup v2 not mounted)")

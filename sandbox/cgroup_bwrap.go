@@ -4,21 +4,24 @@ package sandbox
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"syscall"
 )
 
-// execWithCgroup runs the command with cgroup v2 memory limits.
-// Caller must call cg.cleanup() after runCmd returns.
+// execWithCgroup opens the cgroup directory as an FD and attaches it to the
+// SysProcAttr for CLONE_INTO_CGROUP. The fd stays alive as part of cg.fd
+// (kept by the caller's defer of cg.cleanup()) until after cmd.Start().
 func execWithCgroup(cmd *exec.Cmd, cg *cgroupExec) error {
-	cgFD, err := os.Open(cg.path)
+	// Store the fd on the cgroupExec so it stays alive until cleanup().
+	// syscall.Close-on-exec is disabled so the fd is inherited by clone3.
+	fd, err := syscall.Open(cg.path, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return fmt.Errorf("sandbox: open cgroup dir: %w", err)
 	}
+	cg.fd = fd
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		UseCgroupFD: true,
-		CgroupFD:    int(cgFD.Fd()),
+		CgroupFD:    fd,
 	}
 	return nil
 }
