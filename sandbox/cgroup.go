@@ -138,9 +138,6 @@ func checkCgroupAvailableAt(root string) bool {
 // hasController returns true if controller (e.g. "memory") is listed in
 // the cgroup.controllers file of path.
 func hasController(path, controller string) bool {
-	if path == "" {
-		return false
-	}
 	data, err := os.ReadFile(filepath.Join(path, "cgroup.controllers"))
 	return err == nil && strings.Contains(string(data), controller)
 }
