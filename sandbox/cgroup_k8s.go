@@ -14,9 +14,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// cgroup2fsMagic is the statfs magic for cgroup v2.
-const cgroup2fsMagic uint64 = 0x63677270
-
 // discoverDelegatedPath parses /proc/self/cgroup and returns the absolute path
 // to the current cgroup if it's a cgroup v2 single-line entry. Returns ("", false)
 // for v1, empty file, or malformed input.
@@ -110,38 +107,17 @@ func runInitLeaf() error {
 	return errors.New("enable +memory on subtree_control: EBUSY after retry")
 }
 
-// inK8sPodOnce caches the result of inK8sPod.
-var inK8sPodOnce sync.Once
-
-// inK8sPodResult holds the cached detection result.
-var inK8sPodResult struct {
-	once sync.Once
-	val  bool
-}
-
 // inK8sPod returns true when temenos is running inside a Kubernetes pod.
 // Detection checks: KUBERNETES_SERVICE_HOST env var present AND cgroup v2
 // is mounted at /sys/fs/cgroup.
 func inK8sPod() bool {
-	inK8sPodResult.once.Do(func() {
-		inK8sPodResult.val = detectK8s()
-	})
-	return inK8sPodResult.val
-}
-
-func detectK8s() bool {
-	// Check KUBERNETES_SERVICE_HOST.
 	_, k8sEnv := os.LookupEnv("KUBERNETES_SERVICE_HOST")
 	if !k8sEnv {
 		return false
 	}
-
-	// Verify cgroup v2 is mounted.
 	controllersFile := filepath.Join(cgroupRoot, "cgroup.controllers")
-	if _, err := os.Stat(controllersFile); err != nil {
-		return false
-	}
-	return true
+	_, err := os.Stat(controllersFile)
+	return err == nil
 }
 
 // SetupCgroupV2 performs one-time cgroup v2 init-leaf setup required for

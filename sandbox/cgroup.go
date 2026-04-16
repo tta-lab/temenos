@@ -7,13 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/containerd/cgroups/v3/cgroup2"
 )
@@ -49,7 +46,9 @@ func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 	// This is cached by cgroupAvailable() so subsequent calls are free.
 	delegatedPath, ok := discoverDelegatedPath("/proc/self/cgroup")
 	if !ok {
-		return nil, errors.New("cgroup: cannot discover delegated path from /proc/self/cgroup (not in a cgroup v2 delegation subtree?)")
+		return nil, errors.New(
+			"cgroup: cannot discover delegated path from /proc/self/cgroup",
+		)
 	}
 
 	cgroupPath := filepath.Join(delegatedPath, cgroupPrefix+id)
@@ -69,9 +68,6 @@ func newCgroupExec(memoryMB int) (*cgroupExec, error) {
 }
 
 // addPID adds a process to this cgroup.
-func (c *cgroupExec) addPID(pid int) error {
-	return c.mgr.AddProc(uint64(pid))
-}
 
 // cleanup kills remaining processes and removes the cgroup directory.
 func (c *cgroupExec) cleanup() {
@@ -81,23 +77,6 @@ func (c *cgroupExec) cleanup() {
 
 	// Delete the cgroup directory.
 	_ = c.mgr.Delete()
-}
-
-// killProcs sends SIGKILL to each process in the cgroup (fallback for older kernels).
-func (c *cgroupExec) killProcs() {
-	data, err := os.ReadFile(filepath.Join(c.path, "cgroup.procs"))
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		pid, err := strconv.Atoi(strings.TrimSpace(line))
-		if err != nil || pid <= 1 {
-			continue
-		}
-		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			slog.Warn("sandbox: failed to kill cgroup process", "pid", pid, "err", err)
-		}
-	}
 }
 
 // cgroupAvailable returns true if:
