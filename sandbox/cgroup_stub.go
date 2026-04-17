@@ -28,6 +28,8 @@ func (c *cgroupExec) cleanup() {}
 func cgroupAvailable() bool { return false }
 
 // cgroupV2Reason on non-Linux platforms always reports the platform sentinel.
+//
+//nolint:unused
 func cgroupV2Reason() error { return errors.New("cgroup v2 not supported on this platform") }
 
 // discoverDelegatedPath always returns ("", false) on non-Linux.
