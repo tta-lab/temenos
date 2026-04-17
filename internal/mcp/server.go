@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,6 +33,7 @@ type bashInput struct {
 }
 
 // CommandResult represents the result of a single command execution.
+// StrippedEnvKeys is sorted alphabetically and deduplicated.
 type CommandResult struct {
 	Command         string   `json:"command"`
 	Stdout          string   `json:"stdout"`
@@ -105,7 +107,11 @@ func truncateToken(token string) string {
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
+		slog.Error("mcp: failed to write error response", "status", status, "err", err)
+		// Fallback: at least the status was set; body may be empty.
+		fmt.Fprintf(w, "error: %s\n", message)
+	}
 }
 
 // registerBashTool registers the bash tool handler with the MCP server.
@@ -195,6 +201,7 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 
 		stdout, stderr, exitCode, err := sbx.Exec(cmdCtx, input.Command, execCfg)
 		if err != nil {
+			slog.Warn("temenos: sandbox exec failed", "command", input.Command, "err", err)
 			stderr = err.Error()
 		}
 
@@ -208,6 +215,7 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 
 		resultJSON, err := json.Marshal(result)
 		if err != nil {
+			slog.Error("mcp: failed to marshal command result", "err", err, "command", input.Command)
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: "internal error: failed to serialize results"}},

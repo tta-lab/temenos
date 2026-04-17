@@ -115,6 +115,7 @@ type AllowedPath struct {
 }
 
 // RunResponse is the response from POST /run.
+// StrippedEnvKeys is sorted alphabetically and deduplicated.
 type RunResponse struct {
 	Stdout          string   `json:"stdout"`
 	Stderr          string   `json:"stderr"`

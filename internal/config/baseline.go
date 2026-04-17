@@ -66,6 +66,14 @@ var BaselineAllowEnv = []string{
 	"FORCE_COLOR",
 }
 
+func init() {
+	for _, p := range BaselineAllowEnv {
+		if p == "PATH" || p == "TERM" {
+			panic("config: BaselineAllowEnv must not contain PATH or TERM — they are injected by buildEnv; see baseline.go")
+		}
+	}
+}
+
 // EffectiveAllowEnv returns the union of BaselineAllowEnv and c.AllowEnv,
 // deduplicating exact matches. Baseline patterns appear first; user
 // additions follow in their original order. Used by FilterEnv to decide
