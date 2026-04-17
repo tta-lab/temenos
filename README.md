@@ -124,7 +124,7 @@ Response:
 }
 ```
 
-Keys in `env` not matching `allow_env` in daemon config are silently stripped before execution.
+Keys in `env` not matching `allow_env` in daemon config are silently stripped before execution (stripped keys are logged at debug level and surfaced in `stripped_env_keys` in the response).
 
 ### `GET /health`
 

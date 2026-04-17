@@ -213,3 +213,26 @@ func TestHandleRun_NilEnv_DoesNotCrash(t *testing.T) {
 
 	assert.Empty(t, sbx.lastCfg.Env)
 }
+
+func TestHandleRun_InvalidEnvKey_ReturnsError(t *testing.T) {
+	cfg := &config.Config{}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo", Env: map[string]string{"invalid-key": "value"}}
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "env")
+}
+
+func TestHandleRun_EmptySliceAllowEnv_StripsEverything(t *testing.T) {
+	cfg := &config.Config{AllowEnv: []string{}}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1"}}
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.NoError(t, err)
+
+	for _, e := range sbx.lastCfg.Env {
+		assert.NotEqual(t, "FOO=", e[:4], "FOO should not appear in env")
+	}
+}

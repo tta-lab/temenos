@@ -171,7 +171,7 @@ func (c *Config) BaselineMounts() []sandbox.Mount {
 // If c.AllowEnv is empty (nil OR empty slice), ALL keys are stripped (deny-default).
 // If env is nil/empty, returns nil, nil.
 //
-// Note: PATH, HOME, and TERM are injected by teme's buildEnv separately and do
+// Note: PATH, HOME, and TERM are injected by temenos's buildEnv directly and do
 // not pass through this filter. Callers who want HOME forwarded into the sandbox
 // must include it in c.AllowEnv.
 func (c *Config) FilterEnv(env map[string]string) (allowed map[string]string, stripped []string) {
