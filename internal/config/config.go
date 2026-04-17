@@ -117,13 +117,22 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Validate allow_env patterns (no ~ expansion — env patterns are not paths)
-	for _, pattern := range cfg.AllowEnv {
-		if _, err := filepath.Match(pattern, ""); err != nil {
-			return nil, fmt.Errorf("allow_env: malformed pattern %q: %w", pattern, err)
-		}
+	if err := validateAllowEnv(cfg.AllowEnv); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil
+}
+
+// validateAllowEnv checks that each pattern in allowEnv is a valid filepath.Match
+// pattern. Returns an error describing the first malformed pattern.
+func validateAllowEnv(allowEnv []string) error {
+	for _, pattern := range allowEnv {
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return fmt.Errorf("allow_env: malformed pattern %q: %w", pattern, err)
+		}
+	}
+	return nil
 }
 
 // expandSlice expands ~ in each element of the slice.
