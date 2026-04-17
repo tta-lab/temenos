@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 
 	"github.com/tta-lab/temenos/sandbox"
 
@@ -15,6 +16,7 @@ import (
 type Config struct {
 	AllowRead  []string `toml:"allow_read"`
 	AllowWrite []string `toml:"allow_write"`
+	AllowEnv   []string `toml:"allow_env"`
 	MCPPort    int      `toml:"mcp_port"`    // default: 9783
 	SocketPath string   `toml:"socket_path"` // default: ~/.temenos/daemon.sock
 }
@@ -114,6 +116,13 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	// Validate allow_env patterns (no ~ expansion — env patterns are not paths)
+	for _, pattern := range cfg.AllowEnv {
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("allow_env: malformed pattern %q: %w", pattern, err)
+		}
+	}
+
 	return &cfg, nil
 }
 
@@ -144,4 +153,42 @@ func (c *Config) BaselineMounts() []sandbox.Mount {
 		mounts = append(mounts, sandbox.Mount{Source: p, Target: p, ReadOnly: false})
 	}
 	return mounts
+}
+
+// FilterEnv returns a filtered copy of env containing only keys that match
+// at least one glob pattern in c.AllowEnv (filepath.Match semantics, case-sensitive).
+// Stripped keys are returned sorted for deterministic logging.
+//
+// If c.AllowEnv is empty (nil OR empty slice), ALL keys are stripped (deny-default).
+// If env is nil/empty, returns nil, nil.
+//
+// Note: PATH, HOME, and TERM are injected by teme's buildEnv separately and do
+// not pass through this filter. Callers who want HOME forwarded into the sandbox
+// must include it in c.AllowEnv.
+func (c *Config) FilterEnv(env map[string]string) (allowed map[string]string, stripped []string) {
+	if len(env) == 0 {
+		return nil, nil
+	}
+
+	allowed = make(map[string]string)
+	for key, value := range env {
+		matched := false
+		for _, pattern := range c.AllowEnv {
+			if ok, _ := filepath.Match(pattern, key); ok {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			allowed[key] = value
+		} else {
+			stripped = append(stripped, key)
+		}
+	}
+	if len(allowed) == 0 {
+		allowed = nil
+	}
+
+	sort.Strings(stripped)
+	return allowed, stripped
 }
