@@ -64,4 +64,4 @@ Seatbelt policies are embedded via `//go:embed` from three `.sbpl` files in `san
 - Default execution timeout: 120s
 - Version injected via `-ldflags` at build time (`cli.Version`)
 - `gocyclo` max complexity: 15, line length limit: 120
-- RunRequest.Env and session.Env both filter through Config.AllowEnv (filepath.Match globs); empty/absent allow_env denies all env keys
+- RunRequest.Env and session.Env both filter through Config.EffectiveAllowEnv() (BaselineAllowEnv + user allow_env, deduped, filepath.Match globs); baseline is unconditional, user config extends — never replaces — it
