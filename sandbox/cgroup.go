@@ -148,17 +148,22 @@ func checkCgroupAvailable() bool {
 // the memory controller is delegated, and the path is W_OK-writable.
 // Otherwise returns (false, sentinel) with one of the Err* sentinels.
 func checkCgroupAvailableAt(root string) (bool, error) {
+	return checkCgroupAvailableWith(root, "/proc/self/cgroup")
+}
+
+// checkCgroupAvailableWith is the fully-injectable variant for tests; root is
+// the cgroup v2 root and procFile is the path to the membership file (normally
+// /proc/self/cgroup).
+func checkCgroupAvailableWith(root, procFile string) (bool, error) {
 	controllersFile := filepath.Join(root, "cgroup.controllers")
 	if _, err := os.Stat(controllersFile); err != nil {
 		return false, ErrCgroupNotMounted
 	}
-
-	delegated, ok := discoverDelegatedPath("/proc/self/cgroup")
+	delegated, ok := discoverDelegatedPathAt(procFile, root)
 	if !ok {
 		return false, ErrCgroupNoDelegatedPath
 	}
 	discoveredPath = delegated
-
 	if !hasController(delegated, "memory") {
 		return false, ErrCgroupMemoryControllerOff
 	}
