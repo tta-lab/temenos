@@ -35,7 +35,19 @@ var (
 	cgroupOnce      sync.Once
 	cgroupReady     atomic.Bool
 	cgroupAvailBool bool
+	cgroupReason    error // nil iff cgroupAvailBool == true; else one of the sentinels below.
 	discoveredPath  string
+)
+
+// Sentinel reasons for why cgroup v2 with memory delegation is unavailable.
+// Returned by cgroupV2Reason() and used by SetupCgroupV2 to emit actionable
+// diagnostics. errors.Is checks let callers (e.g. SetupCgroupV2 wrapping the
+// runtimeClassName hint) branch without string sniffing.
+var (
+	ErrCgroupNotMounted          = errors.New("cgroup v2 root not mounted (cgroup.controllers missing)")
+	ErrCgroupNoDelegatedPath     = errors.New("cannot discover delegated cgroup path from /proc/self/cgroup")
+	ErrCgroupMemoryControllerOff = errors.New("memory controller not enabled on delegated cgroup (cgroup.subtree_control missing +memory)")
+	ErrCgroupNotWritable         = errors.New("delegated cgroup path exists but is not writable by this process")
 )
 
 // cgroupExec manages a per-execution cgroup v2 sub-group with memory limits.
@@ -106,35 +118,54 @@ func (c *cgroupExec) cleanup() {
 	}
 }
 
-// cgroupAvailable returns true if cgroup v2 is mounted, the delegated path is
-// discoverable, and 'memory' is in the delegated cgroup's controllers.
+// cgroupAvailable returns true if cgroup v2 with memory delegation is fully
+// usable: mounted, delegated path discoverable, memory controller present,
+// and the delegated path is writable.
 func cgroupAvailable() bool {
-	cgroupOnce.Do(func() {
-		cgroupAvailBool = checkCgroupAvailable()
-	})
+	cgroupOnce.Do(initCgroupStatus)
 	return cgroupAvailBool
 }
 
+// cgroupV2Reason returns nil when cgroupAvailable() is true. Otherwise it
+// returns one of the Err* sentinels above describing exactly why v2 isn't
+// usable. The result is cached alongside the bool — both share cgroupOnce.
+func cgroupV2Reason() error {
+	cgroupOnce.Do(initCgroupStatus)
+	return cgroupReason
+}
+
+func initCgroupStatus() {
+	cgroupAvailBool, cgroupReason = checkCgroupAvailableAt(cgroupRoot)
+}
+
 func checkCgroupAvailable() bool {
-	return checkCgroupAvailableAt(cgroupRoot)
+	ok, _ := checkCgroupAvailableAt(cgroupRoot)
+	return ok
 }
 
 // checkCgroupAvailableAt is the injectable variant for testing.
-// root must be the absolute path to the cgroup v2 root.
-func checkCgroupAvailableAt(root string) bool {
+// Returns (true, nil) when v2 is mounted, the delegated path is discoverable,
+// the memory controller is delegated, and the path is W_OK-writable.
+// Otherwise returns (false, sentinel) with one of the Err* sentinels.
+func checkCgroupAvailableAt(root string) (bool, error) {
 	controllersFile := filepath.Join(root, "cgroup.controllers")
 	if _, err := os.Stat(controllersFile); err != nil {
-		return false
+		return false, ErrCgroupNotMounted
 	}
 
 	delegated, ok := discoverDelegatedPath("/proc/self/cgroup")
 	if !ok {
-		return false
+		return false, ErrCgroupNoDelegatedPath
 	}
 	discoveredPath = delegated
 
-	return hasController(delegated, "memory") &&
-		unix.Access(delegated, unix.W_OK) == nil
+	if !hasController(delegated, "memory") {
+		return false, ErrCgroupMemoryControllerOff
+	}
+	if unix.Access(delegated, unix.W_OK) != nil {
+		return false, ErrCgroupNotWritable
+	}
+	return true, nil
 }
 
 // hasController returns true if controller (e.g. "memory") is listed in

@@ -2,6 +2,8 @@
 
 package sandbox
 
+import "errors"
+
 // cgroupExec is a no-op on non-Linux platforms.
 //
 //nolint:unused
@@ -24,6 +26,9 @@ func (c *cgroupExec) cleanup() {}
 
 // cgroupAvailable always returns false on non-Linux platforms.
 func cgroupAvailable() bool { return false }
+
+// cgroupV2Reason on non-Linux platforms always reports the platform sentinel.
+func cgroupV2Reason() error { return errors.New("cgroup v2 not supported on this platform") }
 
 // discoverDelegatedPath always returns ("", false) on non-Linux.
 //
