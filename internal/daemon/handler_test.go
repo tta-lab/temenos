@@ -153,3 +153,86 @@ func TestBuildMounts_BaselinePrecedesRequestPaths(t *testing.T) {
 	}
 	assert.True(t, foundRequest, "request path must appear after baseline mounts")
 }
+
+func TestHandleRun_FiltersDisallowedEnvKeys(t *testing.T) {
+	cfg := &config.Config{AllowEnv: []string{"FOO"}}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "BAR": "2"}}
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.NoError(t, err)
+
+	found := false
+	for _, e := range sbx.lastCfg.Env {
+		if e == "FOO=1" {
+			found = true
+		}
+		assert.NotEqual(t, "BAR=", e[:4], "BAR should not appear in env")
+	}
+	assert.True(t, found, "FOO should be in env")
+}
+
+func TestHandleRun_EmptyAllowEnv_StripsEverything(t *testing.T) {
+	cfg := &config.Config{AllowEnv: nil}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1"}}
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.NoError(t, err)
+
+	for _, e := range sbx.lastCfg.Env {
+		assert.NotEqual(t, "FOO=", e[:4], "FOO should not appear in env")
+	}
+}
+
+func TestHandleRun_GlobAllowEnv_RetainsMatching(t *testing.T) {
+	cfg := &config.Config{AllowEnv: []string{"TTAL_*"}}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo", Env: map[string]string{"TTAL_JOB_ID": "abc", "OTHER": "xyz"}}
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.NoError(t, err)
+
+	found := false
+	for _, e := range sbx.lastCfg.Env {
+		if e == "TTAL_JOB_ID=abc" {
+			found = true
+		}
+		assert.NotEqual(t, "OTHER=", e[:6], "OTHER should not appear in env")
+	}
+	assert.True(t, found, "TTAL_JOB_ID should be in env")
+}
+
+func TestHandleRun_NilEnv_DoesNotCrash(t *testing.T) {
+	cfg := &config.Config{AllowEnv: []string{"FOO"}}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo"} // Env field not set
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.NoError(t, err)
+
+	assert.Empty(t, sbx.lastCfg.Env)
+}
+
+func TestHandleRun_InvalidEnvKey_ReturnsError(t *testing.T) {
+	cfg := &config.Config{}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo", Env: map[string]string{"invalid-key": "value"}}
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "env")
+}
+
+func TestHandleRun_EmptySliceAllowEnv_StripsEverything(t *testing.T) {
+	cfg := &config.Config{AllowEnv: []string{}}
+	var sbx captureSandbox
+	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1"}}
+
+	_, err := handleRun(context.Background(), cfg, &sbx, req)
+	require.NoError(t, err)
+
+	for _, e := range sbx.lastCfg.Env {
+		assert.NotEqual(t, "FOO=", e[:4], "FOO should not appear in env")
+	}
+}

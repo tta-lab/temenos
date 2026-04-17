@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,9 +39,10 @@ type AllowedPath struct {
 
 // RunResponse is the POST /run response.
 type RunResponse struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
+	Stdout          string   `json:"stdout"`
+	Stderr          string   `json:"stderr"`
+	ExitCode        int      `json:"exit_code"`
+	StrippedEnvKeys []string `json:"stripped_env_keys,omitempty"`
 }
 
 // HealthResponse is the GET /health response.
@@ -90,12 +92,6 @@ func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount
 	return sandbox.AddAncestorMounts(mounts), nil
 }
 
-// buildEnvSlice converts a map of env vars to a KEY=VALUE slice.
-// Deprecated: use session.EnvMapToSlice instead.
-func buildEnvSlice(env map[string]string) []string {
-	return session.EnvMapToSlice(env)
-}
-
 // buildExecConfig constructs a sandbox ExecConfig from environment and mounts.
 // WorkingDir is derived from the first per-request path if present (normalized
 // with filepath.Clean), otherwise falls back to os.TempDir(). Baseline mounts
@@ -122,7 +118,17 @@ func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req
 		return nil, err
 	}
 
-	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts, req.AllowedPaths)
+	// Validate env keys before filtering (consistent with session env validation)
+	if err := session.ValidateEnv(req.Env); err != nil {
+		return nil, err
+	}
+
+	allowedEnv, stripped := cfg.FilterEnv(req.Env)
+	if len(stripped) > 0 {
+		slog.Debug("temenos: stripped disallowed env keys from RunRequest",
+			"keys", stripped)
+	}
+	execCfg := buildExecConfig(session.EnvMapToSlice(allowedEnv), mounts, req.AllowedPaths)
 
 	stdout, stderr, exitCode, err := sbx.Exec(ctx, req.Command, execCfg)
 	if err != nil {
@@ -130,9 +136,10 @@ func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req
 	}
 
 	return &RunResponse{
-		Stdout:   stdout,
-		Stderr:   stderr,
-		ExitCode: exitCode,
+		Stdout:          stdout,
+		Stderr:          stderr,
+		ExitCode:        exitCode,
+		StrippedEnvKeys: stripped,
 	}, nil
 }
 

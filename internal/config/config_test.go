@@ -176,3 +176,121 @@ func TestBaselineMounts_Empty(t *testing.T) {
 	mounts := cfg.BaselineMounts()
 	assert.Empty(t, mounts)
 }
+
+func TestLoad_AllowEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	configContent := `
+allow_env = ["FOO_*", "BAR"]
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"FOO_*", "BAR"}, cfg.AllowEnv)
+}
+
+func TestLoad_AllowEnvMalformedPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	configContent := `
+allow_env = ["[invalid"]
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	_, err = Load(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "allow_env")
+}
+
+func TestLoad_AllowEnvEmptyArray(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	configContent := `
+allow_env = []
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	assert.NotNil(t, cfg.AllowEnv)
+	assert.Empty(t, cfg.AllowEnv)
+
+	allowed, stripped := cfg.FilterEnv(map[string]string{"FOO": "bar"})
+	assert.Nil(t, allowed)
+	assert.Equal(t, []string{"FOO"}, stripped)
+}
+
+func TestFilterEnv_LiteralMatch(t *testing.T) {
+	cfg := &Config{AllowEnv: []string{"DEBUG"}}
+	env := map[string]string{"DEBUG": "1", "DEBUG_MODE": "full"}
+
+	allowed, stripped := cfg.FilterEnv(env)
+
+	assert.Equal(t, map[string]string{"DEBUG": "1"}, allowed)
+	assert.Equal(t, []string{"DEBUG_MODE"}, stripped)
+}
+
+func TestFilterEnv_GlobMatch(t *testing.T) {
+	cfg := &Config{AllowEnv: []string{"TTAL_*"}}
+	env := map[string]string{
+		"TTAL_JOB_ID":     "abc",
+		"TTAL_AGENT_NAME": "coder",
+		"OTHER":           "xyz",
+	}
+
+	allowed, stripped := cfg.FilterEnv(env)
+
+	assert.Equal(t, map[string]string{"TTAL_JOB_ID": "abc", "TTAL_AGENT_NAME": "coder"}, allowed)
+	assert.Equal(t, []string{"OTHER"}, stripped)
+}
+
+func TestFilterEnv_EmptyAllowList_DenyAll(t *testing.T) {
+	cfg := &Config{AllowEnv: nil}
+	env := map[string]string{"FOO": "bar"}
+
+	allowed, stripped := cfg.FilterEnv(env)
+
+	assert.Nil(t, allowed)
+	assert.Equal(t, []string{"FOO"}, stripped)
+}
+
+func TestFilterEnv_NilEnv_ReturnsNil(t *testing.T) {
+	cfg := &Config{AllowEnv: []string{"DEBUG"}}
+
+	allowed, stripped := cfg.FilterEnv(nil)
+
+	assert.Nil(t, allowed)
+	assert.Nil(t, stripped)
+}
+
+func TestFilterEnv_WildcardDoesNotMatchSecretKeys(t *testing.T) {
+	cfg := &Config{AllowEnv: []string{"SAFE_*"}}
+	env := map[string]string{
+		"GITHUB_TOKEN":   "secret1",
+		"MY_SECRET":      "secret2",
+		"ADMIN_PASSWORD": "secret3",
+		"SAFE_FOO":       "safe",
+	}
+
+	allowed, stripped := cfg.FilterEnv(env)
+
+	assert.Equal(t, map[string]string{"SAFE_FOO": "safe"}, allowed)
+	assert.Equal(t, []string{"ADMIN_PASSWORD", "GITHUB_TOKEN", "MY_SECRET"}, stripped)
+}
+
+func TestFilterEnv_StrippedSorted(t *testing.T) {
+	cfg := &Config{AllowEnv: []string{"FOO"}}
+	env := map[string]string{"ZEBRA": "1", "ALPHA": "2", "MIDDLE": "3"}
+
+	_, stripped := cfg.FilterEnv(env)
+
+	assert.Equal(t, []string{"ALPHA", "MIDDLE", "ZEBRA"}, stripped)
+}

@@ -107,7 +107,7 @@ func (s *Store) persist() error {
 // Value rules: no NUL, no LF, no CR. Empty values are valid. Shell metacharacters
 // ($ ` ${}) are allowed — env vars are passed via execve KEY=VALUE pairs, not
 // shell-interpreted.
-func validateEnv(env map[string]string) error {
+func ValidateEnv(env map[string]string) error {
 	for k, v := range env {
 		if !isValidEnvName(k) {
 			return fmt.Errorf("%w: env: key %q must match [a-zA-Z_][a-zA-Z0-9_]*", ErrValidation, k)
@@ -196,7 +196,7 @@ func (s *Store) Register(req RegisterRequest) (*Session, error) {
 	if len(req.Env) > 64 {
 		return nil, fmt.Errorf("%w: env: too many variables (max 64)", ErrValidation)
 	}
-	if err := validateEnv(req.Env); err != nil {
+	if err := ValidateEnv(req.Env); err != nil {
 		return nil, err
 	}
 
