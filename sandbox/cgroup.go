@@ -46,7 +46,7 @@ var (
 var (
 	ErrCgroupNotMounted          = errors.New("cgroup v2 root not mounted (cgroup.controllers missing)")
 	ErrCgroupNoDelegatedPath     = errors.New("cannot discover delegated cgroup path from /proc/self/cgroup")
-	ErrCgroupMemoryControllerOff = errors.New("memory controller not enabled on delegated cgroup (cgroup.subtree_control missing +memory)")
+	ErrCgroupMemoryControllerOff = errors.New("memory controller not enabled on delegated cgroup (cgroup.subtree_control missing)")
 	ErrCgroupNotWritable         = errors.New("delegated cgroup path exists but is not writable by this process")
 )
 
@@ -136,11 +136,6 @@ func cgroupV2Reason() error {
 
 func initCgroupStatus() {
 	cgroupAvailBool, cgroupReason = checkCgroupAvailableAt(cgroupRoot)
-}
-
-func checkCgroupAvailable() bool {
-	ok, _ := checkCgroupAvailableAt(cgroupRoot)
-	return ok
 }
 
 // checkCgroupAvailableAt is the injectable variant for testing.
