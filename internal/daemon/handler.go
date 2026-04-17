@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -122,7 +123,12 @@ func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req
 		return nil, err
 	}
 
-	execCfg := buildExecConfig(buildEnvSlice(req.Env), mounts, req.AllowedPaths)
+	allowedEnv, stripped := cfg.FilterEnv(req.Env)
+	if len(stripped) > 0 {
+		slog.Debug("temenos: stripped disallowed env keys from RunRequest",
+			"keys", stripped)
+	}
+	execCfg := buildExecConfig(buildEnvSlice(allowedEnv), mounts, req.AllowedPaths)
 
 	stdout, stderr, exitCode, err := sbx.Exec(ctx, req.Command, execCfg)
 	if err != nil {
