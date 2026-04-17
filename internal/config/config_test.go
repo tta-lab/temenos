@@ -226,6 +226,10 @@ allow_env = []
 	allowed, stripped := cfg.FilterEnv(map[string]string{"FOO": "bar"})
 	assert.Nil(t, allowed)
 	assert.Equal(t, []string{"FOO"}, stripped)
+
+	// Baseline keys must pass even with empty user allow_env.
+	baselineAllowed, _ := cfg.FilterEnv(map[string]string{"USER": "alice"})
+	assert.Equal(t, "alice", baselineAllowed["USER"], "baseline keys must pass even with empty user allow_env")
 }
 
 func TestFilterEnv_LiteralMatch(t *testing.T) {
@@ -252,14 +256,16 @@ func TestFilterEnv_GlobMatch(t *testing.T) {
 	assert.Equal(t, []string{"OTHER"}, stripped)
 }
 
-func TestFilterEnv_EmptyAllowList_DenyAll(t *testing.T) {
+func TestFilterEnv_EmptyUserAllowList_BaselineStillPasses(t *testing.T) {
 	cfg := &Config{AllowEnv: nil}
-	env := map[string]string{"FOO": "bar"}
+	env := map[string]string{"FOO": "bar", "USER": "alice"}
 
 	allowed, stripped := cfg.FilterEnv(env)
 
-	assert.Nil(t, allowed)
-	assert.Equal(t, []string{"FOO"}, stripped)
+	// FOO is not in baseline; USER is.
+	assert.NotContains(t, allowed, "FOO")
+	assert.Contains(t, stripped, "FOO")
+	assert.Equal(t, "alice", allowed["USER"])
 }
 
 func TestFilterEnv_NilEnv_ReturnsNil(t *testing.T) {

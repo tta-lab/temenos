@@ -408,11 +408,24 @@ func TestBuildExecConfig_FiltersDisallowedSessionEnv(t *testing.T) {
 	}
 }
 
-func TestBuildExecConfig_EmptyAllowEnv_StripsSessionEnv(t *testing.T) {
+func TestBuildExecConfig_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
 	cfg := &config.Config{AllowEnv: nil}
-	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "1"}}
+	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
 	execCfg := buildExecConfig(cfg, sess)
 
-	assert.Nil(t, execCfg.Env)
+	// Baseline keys (USER, HOME) must pass; FOO must be stripped.
+	foundUser := false
+	foundHome := false
+	for _, e := range execCfg.Env {
+		if e == "USER=alice" {
+			foundUser = true
+		}
+		if e == "HOME=/home/alice" {
+			foundHome = true
+		}
+		assert.NotEqual(t, "FOO=1", e, "FOO should not appear in env")
+	}
+	assert.True(t, foundUser, "USER should pass via baseline")
+	assert.True(t, foundHome, "HOME should pass via baseline")
 }
