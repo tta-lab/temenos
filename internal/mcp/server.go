@@ -33,10 +33,11 @@ type bashInput struct {
 
 // CommandResult represents the result of a single command execution.
 type CommandResult struct {
-	Command  string `json:"command"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
+	Command         string   `json:"command"`
+	Stdout          string   `json:"stdout"`
+	Stderr          string   `json:"stderr"`
+	ExitCode        int      `json:"exit_code"`
+	StrippedEnvKeys []string `json:"stripped_env_keys,omitempty"`
 }
 
 // getSession retrieves the session from the request context.
@@ -138,7 +139,7 @@ func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, 
 // passed to the sandbox.
 //
 //nolint:gocyclo
-func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecConfig {
+func buildExecConfig(cfg *config.Config, sess *session.Session) (*sandbox.ExecConfig, []string) {
 	mounts := cfg.BaselineMounts()
 	if sess != nil {
 		for _, p := range sess.WritePaths {
@@ -158,8 +159,10 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 	}
 
 	var envSlice []string
+	var stripped []string
 	if sess != nil && len(sess.Env) > 0 {
-		allowedEnv, stripped := cfg.FilterEnv(sess.Env)
+		var allowedEnv map[string]string
+		allowedEnv, stripped = cfg.FilterEnv(sess.Env)
 		if len(stripped) > 0 {
 			slog.Debug("temenos: stripped disallowed env keys from session",
 				"agent", sess.Agent, "keys", stripped)
@@ -167,7 +170,7 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 		envSlice = session.EnvMapToSlice(allowedEnv)
 	}
 
-	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir, Env: envSlice}
+	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir, Env: envSlice}, stripped
 }
 
 // bashHandler returns the tool handler for the bash tool.
@@ -180,7 +183,7 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 			}, nil, nil
 		}
 
-		execCfg := buildExecConfig(cfg, sess)
+		execCfg, stripped := buildExecConfig(cfg, sess)
 
 		timeout := defaultTimeout
 		if input.Timeout > 0 {
@@ -196,10 +199,11 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 		}
 
 		result := CommandResult{
-			Command:  input.Command,
-			Stdout:   stdout,
-			Stderr:   stderr,
-			ExitCode: exitCode,
+			Command:         input.Command,
+			Stdout:          stdout,
+			Stderr:          stderr,
+			ExitCode:        exitCode,
+			StrippedEnvKeys: stripped,
 		}
 
 		resultJSON, err := json.Marshal(result)

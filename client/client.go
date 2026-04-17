@@ -116,9 +116,10 @@ type AllowedPath struct {
 
 // RunResponse is the response from POST /run.
 type RunResponse struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
+	Stdout          string   `json:"stdout"`
+	Stderr          string   `json:"stderr"`
+	ExitCode        int      `json:"exit_code"`
+	StrippedEnvKeys []string `json:"stripped_env_keys,omitempty"`
 }
 
 // postJSON marshals req as JSON, POSTs it to path, and decodes the response into Resp.
