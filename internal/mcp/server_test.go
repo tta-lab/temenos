@@ -359,9 +359,9 @@ func TestBuildExecConfig_ReadPathsOnly_FallsBackToConfigOrTemp(t *testing.T) {
 }
 
 // TestBuildExecConfig_SessionEnv_PassedToExecConfig verifies session Env vars
-// are passed through to the ExecConfig.
+// are passed through to the ExecConfig when allowed by AllowEnv.
 func TestBuildExecConfig_SessionEnv_PassedToExecConfig(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.Config{AllowEnv: []string{"FOO"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar"}}
 
 	execCfg := buildExecConfig(cfg, sess)
@@ -381,9 +381,10 @@ func TestBuildExecConfig_NilSessionEnv_EmptyExecEnv(t *testing.T) {
 	assert.Nil(t, execCfg.Env)
 }
 
-// TestBuildExecConfig_SessionEnv_MultipleVars verifies multiple env vars are all present.
+// TestBuildExecConfig_SessionEnv_MultipleVars verifies multiple env vars are all present
+// when allowed by AllowEnv.
 func TestBuildExecConfig_SessionEnv_MultipleVars(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.Config{AllowEnv: []string{"FOO", "BAZ"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar", "BAZ": "qux"}}
 
 	execCfg := buildExecConfig(cfg, sess)
@@ -392,4 +393,26 @@ func TestBuildExecConfig_SessionEnv_MultipleVars(t *testing.T) {
 	assert.Contains(t, execCfg.Env, "FOO=bar")
 	assert.Contains(t, execCfg.Env, "BAZ=qux")
 	assert.Len(t, execCfg.Env, 2)
+}
+
+func TestBuildExecConfig_FiltersDisallowedSessionEnv(t *testing.T) {
+	cfg := &config.Config{AllowEnv: []string{"TTAL_*"}}
+	sess := &session.Session{Agent: "test", Env: map[string]string{"TTAL_JOB_ID": "a", "BAD": "b"}}
+
+	execCfg := buildExecConfig(cfg, sess)
+
+	assert.NotNil(t, execCfg.Env)
+	assert.Contains(t, execCfg.Env, "TTAL_JOB_ID=a")
+	for _, e := range execCfg.Env {
+		assert.NotEqual(t, "BAD=", e[:4], "BAD should not appear in env")
+	}
+}
+
+func TestBuildExecConfig_EmptyAllowEnv_StripsSessionEnv(t *testing.T) {
+	cfg := &config.Config{AllowEnv: nil}
+	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "1"}}
+
+	execCfg := buildExecConfig(cfg, sess)
+
+	assert.Nil(t, execCfg.Env)
 }

@@ -159,7 +159,12 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 
 	var envSlice []string
 	if sess != nil && len(sess.Env) > 0 {
-		envSlice = session.EnvMapToSlice(sess.Env)
+		allowedEnv, stripped := cfg.FilterEnv(sess.Env)
+		if len(stripped) > 0 {
+			slog.Debug("temenos: stripped disallowed env keys from session",
+				"agent", sess.Agent, "keys", stripped)
+		}
+		envSlice = session.EnvMapToSlice(allowedEnv)
 	}
 
 	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir, Env: envSlice}
