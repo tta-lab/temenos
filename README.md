@@ -56,6 +56,45 @@ temenos daemon status      # check if running
 
 On macOS, `daemon install` writes a LaunchAgent plist to `~/Library/LaunchAgents/` with `RunAtLoad` and `KeepAlive` enabled. Logs go to `~/.temenos/temenos.{stdout,stderr}.log`.
 
+## Configuration
+
+Temenos is configured via `~/.config/temenos/config.toml` (override with `TEMENOS_CONFIG_PATH`). The config declares baseline filesystem and environment allow-lists for every sandboxed command.
+
+```toml
+# ~/.config/temenos/config.toml
+
+# Filesystem paths the sandbox may READ (read-only bind mounts).
+allow_read = [
+  "~/Code",
+  "~/.config",
+]
+
+# Filesystem paths the sandbox may WRITE.
+allow_write = [
+  "~/.ttal",
+]
+
+# Environment variable names allowed to cross into the sandbox.
+# Glob wildcards use filepath.Match (e.g. "TTAL_*" matches "TTAL_JOB_ID").
+# If this list is empty or absent, ALL env keys are stripped.
+allow_env = [
+  "TTAL_JOB_ID",
+  "TTAL_AGENT_NAME",
+  "LC_*",
+  "DEBUG",
+  "NO_COLOR",
+  "FORCE_COLOR",
+]
+
+# Admin socket path (default: ~/.temenos/daemon.sock).
+# socket_path = "~/.temenos/daemon.sock"
+
+# MCP port (default: 9783, bound to 127.0.0.1 only).
+# mcp_port = 9783
+```
+
+Callers cannot extend `allow_env` per-request — it is intentionally operator-only. See `docs/sandbox-security-model.md` for the full security model.
+
 ## API
 
 ### `POST /run`
@@ -84,6 +123,8 @@ Response:
   "exit_code": 0
 }
 ```
+
+Keys in `env` not matching `allow_env` in daemon config are silently stripped before execution.
 
 ### `GET /health`
 

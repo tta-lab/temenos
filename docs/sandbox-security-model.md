@@ -77,6 +77,50 @@ Everything not explicitly listed above, including:
 - **Other users' directories** — No access by default.
 - **Writable access** — Tool directories are read-only. Only `/tmp`
   and explicitly requested writable `allowed_paths` are writable.
+- **Environment variables** — The sandbox inherits only env keys matching
+  `allow_env` patterns. Empty or unset `allow_env` means all
+  caller-provided env is stripped. See [Environment Variable Access](#environment-variable-access).
+
+## Environment Variable Access
+
+Temenos filters environment variables passed to sandboxed processes through
+the `allow_env` config list — the single source of truth for what env keys
+may enter the sandbox.
+
+### Two Entry Points, One Filter
+
+Both `POST /run` `env` field AND session-registered `env` (MCP bash tool)
+pass through `cfg.AllowEnv` before reaching the sandbox process.
+
+### Glob Semantics
+
+Patterns use `filepath.Match` (e.g. `TTAL_*` matches `TTAL_JOB_ID`;
+`LC_*` matches `LC_ALL`; literal `DEBUG` matches only `DEBUG`).
+Matching is **case-sensitive** (POSIX env convention).
+
+### Deny-Default
+
+If `allow_env` is empty or unset, **ALL** keys are stripped. Callers must
+explicitly list permitted patterns.
+
+### Global Only — Not Extendable Per-Request
+
+Unlike `allow_read`/`allow_write` (which callers extend via
+`RunRequest.AllowedPaths` for per-task fs needs), there is **no**
+per-request `AllowedEnv`. Rationale: filesystem scope varies by task
+(reading a specific repo); the set of safe-to-expose env names is stable
+and security-critical, so it belongs in operator config, not per-call.
+
+### Stripped Keys Behavior
+
+Values are silently absent in the sandbox; daemon logs stripped key names
+at `slog.Debug` level with the caller context (`agent` for sessions). No
+visible error surfaced to the caller.
+
+### Note
+
+`PATH`, `HOME`, and `TERM` are injected by teme's `buildEnv` directly —
+they do not pass through `allow_env` and do not need to be listed.
 
 ## Architecture
 
