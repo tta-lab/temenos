@@ -178,7 +178,11 @@ func SetupCgroupV2() error {
 		return err
 	}
 	if !cgroupAvailable() {
-		return errors.New("cgroup v2 with memory delegation not available after init-leaf setup")
+		reason := cgroupV2Reason()
+		if errors.Is(reason, ErrCgroupNotWritable) {
+			return fmt.Errorf("%w — set runtimeClassName: cgroup-writable on the pod (or equivalent containerd config)", reason)
+		}
+		return fmt.Errorf("cgroup v2 with memory delegation not available after init-leaf setup: %w", reason)
 	}
 	cgroupReady.Store(true)
 	return nil

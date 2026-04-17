@@ -116,7 +116,8 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Validate allow_env patterns (no ~ expansion — env patterns are not paths)
+	// Validate operator-supplied allow_env patterns only. BaselineAllowEnv is
+	// known-good by construction (patterns are reviewed and frozen at source).
 	if err := validateAllowEnv(cfg.AllowEnv); err != nil {
 		return nil, err
 	}
@@ -165,24 +166,34 @@ func (c *Config) BaselineMounts() []sandbox.Mount {
 }
 
 // FilterEnv returns a filtered copy of env containing only keys that match
-// at least one glob pattern in c.AllowEnv (filepath.Match semantics, case-sensitive).
-// Stripped keys are returned sorted for deterministic logging.
+// at least one glob pattern in the effective allow_env (BaselineAllowEnv + c.AllowEnv,
+// filepath.Match semantics, case-sensitive). Stripped keys are returned sorted
+// for deterministic logging.
 //
-// If c.AllowEnv is empty (nil OR empty slice), ALL keys are stripped (deny-default).
+// Even if c.AllowEnv is empty, keys matching BaselineAllowEnv (USER, LANG, LC_*, HOME, …)
+// still pass through. Baseline is a safety floor — there is no built-in mechanism to disable it.
+// A nil c.AllowEnv and an empty []string{} both produce baseline-only behavior — the union
+// with BaselineAllowEnv is identical in both cases.
+//
 // If env is nil/empty, returns nil, nil.
 //
-// Note: PATH, HOME, and TERM are injected by temenos's buildEnv directly and do
-// not pass through this filter. Callers who want HOME forwarded into the sandbox
-// must include it in c.AllowEnv.
+// Note: PATH and TERM are injected by teme's buildEnv directly — they do not pass
+// through allow_env and must not be added to it (a user-supplied PATH would override
+// the sandbox's curated PATH via duplicate-key precedence in os/exec).
+//
+// HOME is in BaselineAllowEnv, so a caller-supplied HOME passes through and overrides
+// buildEnv's fallback. Tools resolving ~/.gitconfig etc. will see the real HOME — but
+// sandbox filesystem policy (seatbelt/bwrap mounts) is the security boundary, not env hiding.
 func (c *Config) FilterEnv(env map[string]string) (allowed map[string]string, stripped []string) {
 	if len(env) == 0 {
 		return nil, nil
 	}
 
 	allowed = make(map[string]string)
+	patterns := c.EffectiveAllowEnv()
 	for key, value := range env {
 		matched := false
-		for _, pattern := range c.AllowEnv {
+		for _, pattern := range patterns {
 			if ok, _ := filepath.Match(pattern, key); ok {
 				matched = true
 				break

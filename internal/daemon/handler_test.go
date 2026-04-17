@@ -172,17 +172,27 @@ func TestHandleRun_FiltersDisallowedEnvKeys(t *testing.T) {
 	assert.True(t, found, "FOO should be in env")
 }
 
-func TestHandleRun_EmptyAllowEnv_StripsEverything(t *testing.T) {
+func TestHandleRun_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
 	cfg := &config.Config{AllowEnv: nil}
 	var sbx captureSandbox
-	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1"}}
+	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
 	_, err := handleRun(context.Background(), cfg, &sbx, req)
 	require.NoError(t, err)
 
+	hasUser := false
+	hasHome := false
 	for _, e := range sbx.lastCfg.Env {
+		if e == "USER=alice" {
+			hasUser = true
+		}
+		if e == "HOME=/home/alice" {
+			hasHome = true
+		}
 		assert.NotEqual(t, "FOO=", e[:4], "FOO should not appear in env")
 	}
+	assert.True(t, hasUser, "USER should pass via baseline")
+	assert.True(t, hasHome, "HOME should pass via baseline")
 }
 
 func TestHandleRun_GlobAllowEnv_RetainsMatching(t *testing.T) {
@@ -224,15 +234,25 @@ func TestHandleRun_InvalidEnvKey_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "env")
 }
 
-func TestHandleRun_EmptySliceAllowEnv_StripsEverything(t *testing.T) {
+func TestHandleRun_EmptySliceAllowEnv_BaselineStillPasses(t *testing.T) {
 	cfg := &config.Config{AllowEnv: []string{}}
 	var sbx captureSandbox
-	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1"}}
+	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
 	_, err := handleRun(context.Background(), cfg, &sbx, req)
 	require.NoError(t, err)
 
+	hasUser := false
+	hasHome := false
 	for _, e := range sbx.lastCfg.Env {
+		if e == "USER=alice" {
+			hasUser = true
+		}
+		if e == "HOME=/home/alice" {
+			hasHome = true
+		}
 		assert.NotEqual(t, "FOO=", e[:4], "FOO should not appear in env")
 	}
+	assert.True(t, hasUser, "USER should pass via baseline")
+	assert.True(t, hasHome, "HOME should pass via baseline")
 }

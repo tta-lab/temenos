@@ -34,8 +34,17 @@ func (s *BwrapSandbox) Exec(
 	cmd := exec.CommandContext(ctx, s.BwrapPath, args...)
 	cmd.Env = buildEnv(cfg, "/home/agent")
 
-	// No memory limit configured, or cgroup v2 not available.
-	if s.MemoryLimitMB <= 0 || !cgroupAvailable() {
+	// No memory limit configured — pure passthrough.
+	if s.MemoryLimitMB <= 0 {
+		return runCmd(ctx, cmd)
+	}
+	// Memory limit was requested but cgroup v2 isn't usable. Run unbounded but
+	// surface the reason — silent fallback was an observability hole. Tag with
+	// memory_limit_mb so ops can grep for "wanted limit, didn't get it" events.
+	if !cgroupAvailable() {
+		slog.Warn("sandbox: cgroup v2 not available — running without memory limit",
+			"sandbox.memory_limit_mb", s.MemoryLimitMB,
+			"reason", cgroupV2Reason())
 		return runCmd(ctx, cmd)
 	}
 

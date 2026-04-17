@@ -98,10 +98,18 @@ Patterns use `filepath.Match` (e.g. `TTAL_*` matches `TTAL_JOB_ID`;
 `LC_*` matches `LC_ALL`; literal `DEBUG` matches only `DEBUG`).
 Matching is **case-sensitive** (POSIX env convention).
 
-### Deny-Default
+### Baseline + Operator Extends
 
-If `allow_env` is empty or unset, **ALL** keys are stripped. Callers must
-explicitly list permitted patterns.
+A built-in baseline of universally-safe env keys (USER, LOGNAME, LANG,
+LC_*, TZ, HOME, PWD, TMPDIR, SHELL, COLUMNS, LINES, DEBUG, CI, NO_COLOR,
+FORCE_COLOR) is always applied. Operator `allow_env` extends — does not
+replace — this list. To inspect the merged set programmatically, call
+`Config.EffectiveAllowEnv()`. The baseline definition and exclusion
+rationale live in `internal/config/baseline.go`.
+
+If both baseline and operator allow-list reject a key, it is stripped.
+There is no per-request override path; baseline is unconditional and
+operator config is operator-only.
 
 ### Global Only — Not Extendable Per-Request
 
@@ -114,13 +122,22 @@ and security-critical, so it belongs in operator config, not per-call.
 ### Stripped Keys Behavior
 
 Values are silently absent in the sandbox; daemon logs stripped key names
-at `slog.Debug` level with the caller context (`agent` for sessions). No
-visible error surfaced to the caller.
+at `slog.Debug` level with the caller context (`agent` for sessions). The
+daemon response and MCP `CommandResult` both include `stripped_env_keys`
+when non-empty, so callers can observe what was dropped without polling
+logs.
 
 ### Note
 
-`PATH`, `HOME`, and `TERM` are injected by teme's `buildEnv` directly —
-they do not pass through `allow_env` and do not need to be listed.
+`PATH` and `TERM` are injected by teme's `buildEnv` directly — they do
+not pass through `allow_env` and must not be added to it (a user-supplied
+PATH would override the sandbox's curated PATH via duplicate-key
+precedence in `os/exec`).
+
+`HOME` IS in BaselineAllowEnv: a caller-supplied HOME flows through and
+overrides the `buildEnv` fallback (`/home/agent`). Tools that resolve
+`~/.gitconfig` etc. will see the real HOME — but sandbox filesystem
+policy (seatbelt/bwrap mounts) is the security boundary, not env hiding.
 
 ## Architecture
 

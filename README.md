@@ -74,16 +74,13 @@ allow_write = [
   "~/.ttal",
 ]
 
-# Environment variable names allowed to cross into the sandbox.
+# Environment variable names allowed into the sandbox.
+# A built-in baseline (USER, LANG, LC_*, HOME, PWD, SHELL, TZ, NO_COLOR, ...)
+# is ALWAYS applied — entries below extend it.
 # Glob wildcards use filepath.Match (e.g. "TTAL_*" matches "TTAL_JOB_ID").
-# If this list is empty or absent, ALL env keys are stripped.
 allow_env = [
   "TTAL_JOB_ID",
   "TTAL_AGENT_NAME",
-  "LC_*",
-  "DEBUG",
-  "NO_COLOR",
-  "FORCE_COLOR",
 ]
 
 # Admin socket path (default: ~/.temenos/daemon.sock).
@@ -94,6 +91,19 @@ allow_env = [
 ```
 
 Callers cannot extend `allow_env` per-request — it is intentionally operator-only. See `docs/sandbox-security-model.md` for the full security model.
+
+### Baseline allow_env
+
+Temenos ships with a built-in baseline of universally-safe env keys
+(identity, locale/time, standard paths, shell, terminal sizing, common
+diagnostic flags). Operator config in `allow_env` **extends** the baseline
+— it does not replace it. The full baseline list and exclusion rationale
+live in `internal/config/baseline.go`.
+
+Keys excluded from baseline include `PATH`, `TERM` (injected by the
+sandbox directly), `SSH_AUTH_SOCK`, `*_TOKEN`/`*_SECRET`/`*_PASSWORD`,
+proxy vars, and `XDG_*`. Operators may still allow these explicitly if
+they understand the trade-offs.
 
 ## API
 
@@ -124,7 +134,7 @@ Response:
 }
 ```
 
-Keys in `env` not matching `allow_env` in daemon config are silently stripped before execution (stripped keys are logged at debug level and surfaced in `stripped_env_keys` in the response).
+Keys in `env` not matching the effective allow_env (baseline + operator config) are silently stripped before execution. Stripped keys are logged at debug level and surfaced in `stripped_env_keys` in the response (MCP tool results include the same field in `CommandResult`).
 
 ### `GET /health`
 

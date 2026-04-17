@@ -261,7 +261,7 @@ func TestBuildExecConfig_WritePaths_MountedReadWrite(t *testing.T) {
 		WritePaths: []string{"/session-write"},
 	}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
 	var found bool
 	for _, m := range execCfg.MountDirs {
@@ -281,7 +281,7 @@ func TestBuildExecConfig_ReadPaths_MountedReadOnly(t *testing.T) {
 		ReadPaths: []string{"/session-read"},
 	}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
 	var found bool
 	for _, m := range execCfg.MountDirs {
@@ -302,7 +302,7 @@ func TestBuildExecConfig_WriteAndReadPaths(t *testing.T) {
 		ReadPaths:  []string{"/session-read"},
 	}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
 	foundWrite, foundRead := false, false
 	for _, m := range execCfg.MountDirs {
@@ -321,21 +321,21 @@ func TestBuildExecConfig_WriteAndReadPaths(t *testing.T) {
 
 func TestBuildExecConfig_NoSessionNoWritePaths_FallsBackToTempDir(t *testing.T) {
 	cfg := &config.Config{} // no AllowWrite
-	execCfg := buildExecConfig(cfg, nil)
+	execCfg, _ := buildExecConfig(cfg, nil)
 	assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
 }
 
 func TestBuildExecConfig_NoSessionWritePaths_UsesConfigAllowWrite(t *testing.T) {
 	cfg := &config.Config{AllowWrite: []string{"/config-write"}}
 	sess := &session.Session{} // no WritePaths
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 	assert.Equal(t, "/config-write", execCfg.WorkingDir)
 }
 
 func TestBuildExecConfig_WithWritePaths_UsesFirstWritePath(t *testing.T) {
 	cfg := &config.Config{AllowWrite: []string{"/config-write"}}
 	sess := &session.Session{WritePaths: []string{"/session-write"}}
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 	assert.Equal(t, "/session-write", execCfg.WorkingDir)
 }
 
@@ -346,14 +346,14 @@ func TestBuildExecConfig_ReadPathsOnly_FallsBackToConfigOrTemp(t *testing.T) {
 	t.Run("falls back to config AllowWrite", func(t *testing.T) {
 		cfg := &config.Config{AllowWrite: []string{"/config-write"}}
 		sess := &session.Session{ReadPaths: []string{"/session-read"}}
-		execCfg := buildExecConfig(cfg, sess)
+		execCfg, _ := buildExecConfig(cfg, sess)
 		assert.Equal(t, "/config-write", execCfg.WorkingDir)
 	})
 
 	t.Run("falls back to TempDir when no AllowWrite", func(t *testing.T) {
 		cfg := &config.Config{}
 		sess := &session.Session{ReadPaths: []string{"/session-read"}}
-		execCfg := buildExecConfig(cfg, sess)
+		execCfg, _ := buildExecConfig(cfg, sess)
 		assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
 	})
 }
@@ -364,7 +364,7 @@ func TestBuildExecConfig_SessionEnv_PassedToExecConfig(t *testing.T) {
 	cfg := &config.Config{AllowEnv: []string{"FOO"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar"}}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
 	assert.NotNil(t, execCfg.Env)
 	assert.Contains(t, execCfg.Env, "FOO=bar")
@@ -376,7 +376,7 @@ func TestBuildExecConfig_NilSessionEnv_EmptyExecEnv(t *testing.T) {
 	cfg := &config.Config{}
 	sess := &session.Session{Agent: "test"}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
 	assert.Nil(t, execCfg.Env)
 }
@@ -387,7 +387,7 @@ func TestBuildExecConfig_SessionEnv_MultipleVars(t *testing.T) {
 	cfg := &config.Config{AllowEnv: []string{"FOO", "BAZ"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar", "BAZ": "qux"}}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
 	assert.NotNil(t, execCfg.Env)
 	assert.Contains(t, execCfg.Env, "FOO=bar")
@@ -399,7 +399,7 @@ func TestBuildExecConfig_FiltersDisallowedSessionEnv(t *testing.T) {
 	cfg := &config.Config{AllowEnv: []string{"TTAL_*"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"TTAL_JOB_ID": "a", "BAD": "b"}}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
 	assert.NotNil(t, execCfg.Env)
 	assert.Contains(t, execCfg.Env, "TTAL_JOB_ID=a")
@@ -408,11 +408,39 @@ func TestBuildExecConfig_FiltersDisallowedSessionEnv(t *testing.T) {
 	}
 }
 
-func TestBuildExecConfig_EmptyAllowEnv_StripsSessionEnv(t *testing.T) {
+func TestBuildExecConfig_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
 	cfg := &config.Config{AllowEnv: nil}
-	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "1"}}
+	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
-	execCfg := buildExecConfig(cfg, sess)
+	execCfg, _ := buildExecConfig(cfg, sess)
 
-	assert.Nil(t, execCfg.Env)
+	// Baseline keys (USER, HOME) must pass; FOO must be stripped.
+	foundUser := false
+	foundHome := false
+	for _, e := range execCfg.Env {
+		if e == "USER=alice" {
+			foundUser = true
+		}
+		if e == "HOME=/home/alice" {
+			foundHome = true
+		}
+		assert.NotEqual(t, "FOO=1", e, "FOO should not appear in env")
+	}
+	assert.True(t, foundUser, "USER should pass via baseline")
+	assert.True(t, foundHome, "HOME should pass via baseline")
+}
+
+// TestBashHandler_PopulatesStrippedEnvKeys verifies bashHandler propagates the
+// FilterEnv stripped list into CommandResult.StrippedEnvKeys (visibility for
+// caller that a key was silently dropped).
+func TestBashHandler_PopulatesStrippedEnvKeys(t *testing.T) {
+	cfg := &config.Config{AllowEnv: []string{"FOO"}}
+	sess := &session.Session{Agent: "test", Env: map[string]string{
+		"FOO":   "1",
+		"DROP1": "x",
+		"DROP2": "y",
+	}}
+	execCfg, stripped := buildExecConfig(cfg, sess)
+	require.NotNil(t, execCfg)
+	assert.Equal(t, []string{"DROP1", "DROP2"}, stripped, "stripped list must be sorted, deduped")
 }

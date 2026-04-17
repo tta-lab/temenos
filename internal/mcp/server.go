@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,11 +33,13 @@ type bashInput struct {
 }
 
 // CommandResult represents the result of a single command execution.
+// StrippedEnvKeys is sorted alphabetically and deduplicated.
 type CommandResult struct {
-	Command  string `json:"command"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
+	Command         string   `json:"command"`
+	Stdout          string   `json:"stdout"`
+	Stderr          string   `json:"stderr"`
+	ExitCode        int      `json:"exit_code"`
+	StrippedEnvKeys []string `json:"stripped_env_keys,omitempty"`
 }
 
 // getSession retrieves the session from the request context.
@@ -104,7 +107,11 @@ func truncateToken(token string) string {
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
+		slog.Error("mcp: failed to write error response", "status", status, "err", err)
+		// Fallback: at least the status was set; body may be empty.
+		fmt.Fprintf(w, "error: %s\n", message)
+	}
 }
 
 // registerBashTool registers the bash tool handler with the MCP server.
@@ -138,7 +145,7 @@ func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, 
 // passed to the sandbox.
 //
 //nolint:gocyclo
-func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecConfig {
+func buildExecConfig(cfg *config.Config, sess *session.Session) (*sandbox.ExecConfig, []string) {
 	mounts := cfg.BaselineMounts()
 	if sess != nil {
 		for _, p := range sess.WritePaths {
@@ -158,8 +165,10 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 	}
 
 	var envSlice []string
+	var stripped []string
 	if sess != nil && len(sess.Env) > 0 {
-		allowedEnv, stripped := cfg.FilterEnv(sess.Env)
+		var allowedEnv map[string]string
+		allowedEnv, stripped = cfg.FilterEnv(sess.Env)
 		if len(stripped) > 0 {
 			slog.Debug("temenos: stripped disallowed env keys from session",
 				"agent", sess.Agent, "keys", stripped)
@@ -167,7 +176,7 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) *sandbox.ExecCon
 		envSlice = session.EnvMapToSlice(allowedEnv)
 	}
 
-	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir, Env: envSlice}
+	return &sandbox.ExecConfig{MountDirs: mounts, WorkingDir: workDir, Env: envSlice}, stripped
 }
 
 // bashHandler returns the tool handler for the bash tool.
@@ -180,7 +189,7 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 			}, nil, nil
 		}
 
-		execCfg := buildExecConfig(cfg, sess)
+		execCfg, stripped := buildExecConfig(cfg, sess)
 
 		timeout := defaultTimeout
 		if input.Timeout > 0 {
@@ -192,18 +201,21 @@ func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session)
 
 		stdout, stderr, exitCode, err := sbx.Exec(cmdCtx, input.Command, execCfg)
 		if err != nil {
+			slog.Warn("temenos: sandbox exec failed", "command", input.Command, "err", err)
 			stderr = err.Error()
 		}
 
 		result := CommandResult{
-			Command:  input.Command,
-			Stdout:   stdout,
-			Stderr:   stderr,
-			ExitCode: exitCode,
+			Command:         input.Command,
+			Stdout:          stdout,
+			Stderr:          stderr,
+			ExitCode:        exitCode,
+			StrippedEnvKeys: stripped,
 		}
 
 		resultJSON, err := json.Marshal(result)
 		if err != nil {
+			slog.Error("mcp: failed to marshal command result", "err", err, "command", input.Command)
 			return &mcp.CallToolResult{
 				IsError: true,
 				Content: []mcp.Content{&mcp.TextContent{Text: "internal error: failed to serialize results"}},
