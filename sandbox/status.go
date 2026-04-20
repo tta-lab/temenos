@@ -25,9 +25,11 @@ type Check struct {
 }
 
 const (
-	initLeafRemediation         = "init-leaf migration requires a cgroup v2 environment; check daemon startup logs"
-	memoryDelegationRemediation = "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)"
+	initLeafRemediation  = "init-leaf migration requires a cgroup v2 environment; check daemon startup logs"
+	memoryDelRemediation = "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)"
 )
+
+const initLeafPathSuffix = "/init"
 
 // Probe functions — package vars for test injection (match existing pattern
 // used by inK8s / cgroupAvailableStatus).
@@ -144,7 +146,7 @@ func checkInitLeafImpl() Check {
 		}
 	}
 
-	if strings.HasSuffix(path, "/init") || path == "/init" {
+	if strings.HasSuffix(path, initLeafPathSuffix) || path == initLeafPathSuffix {
 		return Check{
 			Name:   "init_leaf",
 			OK:     true,
@@ -171,7 +173,7 @@ func checkMemoryDelegatedImpl() Check {
 			Name:        "memory_delegated",
 			OK:          false,
 			Detail:      "not running in a Kubernetes pod (KUBERNETES_SERVICE_HOST not set)",
-			Remediation: memoryDelegationRemediation,
+			Remediation: memoryDelRemediation,
 		}
 	}
 
@@ -181,13 +183,13 @@ func checkMemoryDelegatedImpl() Check {
 			Name:        "memory_delegated",
 			OK:          false,
 			Detail:      err.Error(),
-			Remediation: memoryDelegationRemediation,
+			Remediation: memoryDelRemediation,
 		}
 	}
 
 	// Strip /init suffix to get the parent where +memory was written.
 	// If no /init suffix, parent is the same as path.
-	parent := strings.TrimSuffix(path, "/init")
+	parent := strings.TrimSuffix(path, initLeafPathSuffix)
 
 	subtreeCtrlPath := fmt.Sprintf("/sys/fs/cgroup%s/cgroup.subtree_control", parent)
 	content, err := os.ReadFile(subtreeCtrlPath)
@@ -196,7 +198,7 @@ func checkMemoryDelegatedImpl() Check {
 			Name:        "memory_delegated",
 			OK:          false,
 			Detail:      fmt.Sprintf("cannot read %s: %v", subtreeCtrlPath, err),
-			Remediation: memoryDelegationRemediation,
+			Remediation: memoryDelRemediation,
 		}
 	}
 
@@ -211,7 +213,7 @@ func checkMemoryDelegatedImpl() Check {
 		Name:        "memory_delegated",
 		OK:          false,
 		Detail:      fmt.Sprintf("memory not in cgroup.subtree_control at %s", subtreeCtrlPath),
-		Remediation: memoryDelegationRemediation,
+		Remediation: memoryDelRemediation,
 	}
 }
 
