@@ -26,7 +26,9 @@ type Check struct {
 
 const (
 	initLeafRemediation  = "init-leaf migration requires a cgroup v2 environment; check daemon startup logs"
-	memoryDelRemediation = "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)"
+	memoryDelRemediation = "memory controller not delegated to pod cgroup; " +
+		"set runtimeClassName: cgroup-writable on the pod " +
+		"(or equivalent containerd cgroup_writable config)"
 )
 
 const initLeafPathSuffix = "/init"
