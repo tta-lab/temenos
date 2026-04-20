@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/spf13/cobra"
@@ -19,16 +20,24 @@ type doctorNotReadyError struct{}
 func (e *doctorNotReadyError) Error() string { return "sandbox not ready" }
 
 var doctorCmd = &cobra.Command{
-	Use:   "doctor",
-	Short: "Diagnose sandbox runtime (cgroup v2, k8s, memory delegation)",
+	Use:               "doctor",
+	Short:             "Diagnose sandbox runtime (cgroup v2, k8s, memory delegation)",
+	SilenceUsage:      true,
+	SilenceErrors:     true,
+	DisableAutoGenTag: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		status := currentStatus()
 		if cmd.Flag("json").Value.String() == "true" {
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
-			return enc.Encode(status)
+			if err := enc.Encode(status); err != nil {
+				return fmt.Errorf("write JSON output: %w", err)
+			}
+		} else {
+			if _, err := io.WriteString(cmd.OutOrStdout(), status.String()+"\n"); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
 		}
-		_, _ = io.WriteString(cmd.OutOrStdout(), status.String())
 		if !status.Ready {
 			return doctorNotReadyErr
 		}
