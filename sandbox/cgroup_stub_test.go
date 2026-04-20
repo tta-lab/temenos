@@ -40,7 +40,6 @@ func TestStatusJSON(t *testing.T) {
 		t.Errorf("len(checks) = %d, want 1", len(checks))
 	}
 
-	// Round-trip.
 	var roundTrip Status
 	if err := json.Unmarshal(data, &roundTrip); err != nil {
 		t.Fatalf("json.Unmarshal into Status: %v", err)
@@ -53,7 +52,6 @@ func TestStatusJSON(t *testing.T) {
 func TestStatusString_Platform(t *testing.T) {
 	status := CurrentStatus()
 	got := status.String()
-	// Stub always returns this message.
 	want := "temenos doctor: not available on this platform"
 	if got != want {
 		t.Errorf("Status.String() = %q, want %q", got, want)

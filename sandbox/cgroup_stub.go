@@ -40,6 +40,18 @@ type Check struct {
 // String implements fmt.Stringer for non-Linux.
 func (s Status) String() string { return "temenos doctor: not available on this platform" }
 
+// NewStatus constructs a Status from a list of checks, computing Ready from the
+// checks' OK fields.
+func NewStatus(checks []Check) Status {
+	ready := true
+	for _, c := range checks {
+		if !c.OK {
+			ready = false
+		}
+	}
+	return Status{Ready: ready, Checks: checks}
+}
+
 // CurrentStatus always returns a single platform-unsupported check on non-Linux.
 func CurrentStatus() Status {
 	return Status{

@@ -16,12 +16,18 @@ type Status struct {
 }
 
 // Check is one diagnostic probe with a prescriptive remediation on failure.
+// Detail is only meaningful on failure; Remediation is always meaningful on failure.
 type Check struct {
 	Name        string `json:"name"`
 	OK          bool   `json:"ok"`
 	Detail      string `json:"detail,omitempty"`
 	Remediation string `json:"remediation,omitempty"`
 }
+
+const (
+	initLeafRemediation         = "init-leaf migration requires a cgroup v2 environment; check daemon startup logs"
+	memoryDelegationRemediation = "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)"
+)
 
 // Probe functions — package vars for test injection (match existing pattern
 // used by inK8s / cgroupAvailableStatus).
@@ -30,7 +36,37 @@ var (
 	checkCgroupV2Mounted = checkCgroupV2MountedImpl
 	checkInitLeaf        = checkInitLeafImpl
 	checkMemoryDelegated = checkMemoryDelegatedImpl
+
+	// readProc1CgroupPathReader is injectable for testing.
+	readProc1CgroupPathReader = readProc1CgroupPath
 )
+
+// readProc1CgroupPath reads /proc/1/cgroup and returns the cgroup path
+// (everything after "0::"). It returns an error if the file cannot be read
+// or has an unexpected format.
+func readProc1CgroupPath() (string, error) {
+	data, err := os.ReadFile("/proc/1/cgroup")
+	if err != nil {
+		return "", fmt.Errorf("cannot read /proc/1/cgroup: %w", err)
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(line, "0::") {
+		return "", fmt.Errorf("unexpected /proc/1/cgroup format: %s", line)
+	}
+	return strings.TrimPrefix(line, "0::"), nil
+}
+
+// NewStatus constructs a Status from a list of checks, computing Ready from the
+// checks' OK fields.
+func NewStatus(checks []Check) Status {
+	ready := true
+	for _, c := range checks {
+		if !c.OK {
+			ready = false
+		}
+	}
+	return Status{Ready: ready, Checks: checks}
+}
 
 // CurrentStatus returns a snapshot of the cgroup v2 environment via filesystem probes.
 func CurrentStatus() Status {
@@ -55,7 +91,7 @@ func checkK8sPodImpl() Check {
 		return Check{
 			Name:   "k8s_pod",
 			OK:     true,
-			Detail: "KUBERNETES_SERVICE_HOST set, cgroup v2 mounted",
+			Detail: "KUBERNETES_SERVICE_HOST set",
 		}
 	}
 	return Check{
@@ -89,36 +125,24 @@ func checkCgroupV2MountedImpl() Check {
 // Assumes temenos is PID 1 in the pod (standard k8s deployment). Sidecar
 // deployments are unsupported and will probe the wrong process's cgroup.
 func checkInitLeafImpl() Check {
-	// Use inK8sPod as a prerequisite — if not in k8s, skip the PID 1 probe.
 	if !inK8sPod() {
 		return Check{
 			Name:        "init_leaf",
 			OK:          false,
-			Remediation: "daemon has not completed init-leaf migration; check daemon startup logs for SetupCgroupV2 errors",
+			Detail:      "not running in a Kubernetes pod (KUBERNETES_SERVICE_HOST not set)",
+			Remediation: initLeafRemediation,
 		}
 	}
 
-	data, err := os.ReadFile("/proc/1/cgroup")
+	path, err := readProc1CgroupPathReader()
 	if err != nil {
 		return Check{
 			Name:        "init_leaf",
 			OK:          false,
-			Detail:      fmt.Sprintf("cannot read /proc/1/cgroup: %v", err),
-			Remediation: "daemon has not completed init-leaf migration; check daemon startup logs for SetupCgroupV2 errors",
+			Detail:      err.Error(),
+			Remediation: initLeafRemediation,
 		}
 	}
-
-	// Format: "0::/path" — extract the path after the second colon.
-	line := strings.TrimSpace(string(data))
-	if !strings.HasPrefix(line, "0::") {
-		return Check{
-			Name:        "init_leaf",
-			OK:          false,
-			Detail:      fmt.Sprintf("unexpected /proc/1/cgroup format: %s", line),
-			Remediation: "daemon has not completed init-leaf migration; check daemon startup logs for SetupCgroupV2 errors",
-		}
-	}
-	path := strings.TrimPrefix(line, "0::")
 
 	if strings.HasSuffix(path, "/init") || path == "/init" {
 		return Check{
@@ -131,7 +155,7 @@ func checkInitLeafImpl() Check {
 		Name:        "init_leaf",
 		OK:          false,
 		Detail:      fmt.Sprintf("PID 1 cgroup: %s (does not end in /init)", path),
-		Remediation: "daemon has not completed init-leaf migration; check daemon startup logs for SetupCgroupV2 errors",
+		Remediation: initLeafRemediation,
 	}
 }
 
@@ -146,37 +170,24 @@ func checkMemoryDelegatedImpl() Check {
 		return Check{
 			Name:        "memory_delegated",
 			OK:          false,
-			Remediation: "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)",
+			Detail:      "not running in a Kubernetes pod (KUBERNETES_SERVICE_HOST not set)",
+			Remediation: memoryDelegationRemediation,
 		}
 	}
 
-	data, err := os.ReadFile("/proc/1/cgroup")
+	path, err := readProc1CgroupPathReader()
 	if err != nil {
 		return Check{
 			Name:        "memory_delegated",
 			OK:          false,
-			Detail:      fmt.Sprintf("cannot read /proc/1/cgroup: %v", err),
-			Remediation: "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)",
+			Detail:      err.Error(),
+			Remediation: memoryDelegationRemediation,
 		}
 	}
-
-	line := strings.TrimSpace(string(data))
-	if !strings.HasPrefix(line, "0::") {
-		return Check{
-			Name:        "memory_delegated",
-			OK:          false,
-			Detail:      fmt.Sprintf("unexpected /proc/1/cgroup format: %s", line),
-			Remediation: "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)",
-		}
-	}
-	path := strings.TrimPrefix(line, "0::")
 
 	// Strip /init suffix to get the parent where +memory was written.
+	// If no /init suffix, parent is the same as path.
 	parent := strings.TrimSuffix(path, "/init")
-	if parent == path {
-		// No /init suffix — parent is same as path (edge case: already at root).
-		parent = path
-	}
 
 	subtreeCtrlPath := fmt.Sprintf("/sys/fs/cgroup%s/cgroup.subtree_control", parent)
 	content, err := os.ReadFile(subtreeCtrlPath)
@@ -185,7 +196,7 @@ func checkMemoryDelegatedImpl() Check {
 			Name:        "memory_delegated",
 			OK:          false,
 			Detail:      fmt.Sprintf("cannot read %s: %v", subtreeCtrlPath, err),
-			Remediation: "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)",
+			Remediation: memoryDelegationRemediation,
 		}
 	}
 
@@ -200,7 +211,7 @@ func checkMemoryDelegatedImpl() Check {
 		Name:        "memory_delegated",
 		OK:          false,
 		Detail:      fmt.Sprintf("memory not in cgroup.subtree_control at %s", subtreeCtrlPath),
-		Remediation: "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod (or equivalent containerd cgroup_writable config)",
+		Remediation: memoryDelegationRemediation,
 	}
 }
 
