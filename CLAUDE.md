@@ -54,7 +54,7 @@ Seatbelt policies are embedded via `//go:embed` from three `.sbpl` files in `san
 
 **Client** (`client/`) — Go client library for the daemon. Mirrors the daemon types (`RunRequest`, `RunResponse`, `AllowedPath`).
 
-**CLI** (`internal/cli/`) — Cobra command tree. Entry point: `cmd/temenos/main.go`. Subcommands: `daemon {start,stop,restart,install,uninstall,status}`.
+**CLI** (`internal/cli/`) — Cobra command tree. Entry point: `cmd/temenos/main.go`. Top-level commands: `daemon {start,stop,restart,install,uninstall,status}`, `doctor` (runtime diagnostics with per-check remediation).
 
 ## Key Design Decisions
 

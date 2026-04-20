@@ -199,7 +199,7 @@ temenos daemon --cgroupv2-memory-limit 128 start
 - No `SYS_ADMIN` capability required — delegation provides the necessary permissions
 - The daemon fails fast at startup if the environment doesn't support it
 
-**Diagnostics:** `temenos sandbox status` shows the current cgroup v2 environment state.
+**Diagnostics:** `temenos doctor` reports per-check cgroup v2 / k8s / memory-delegation status with remediation hints for any failed probe.
 
 ## Development
 

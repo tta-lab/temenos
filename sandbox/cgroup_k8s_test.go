@@ -141,11 +141,9 @@ func TestRunInitLeaf(t *testing.T) {
 	// Save and restore package globals between subtests.
 	origExecCgroupBase := execCgroupBase
 	origInitLeafErr := initLeafErr
-	origInitLeafSucceeded := initLeafSucceeded
 	t.Cleanup(func() {
 		execCgroupBase = origExecCgroupBase
 		initLeafErr = origInitLeafErr
-		initLeafSucceeded = origInitLeafSucceeded
 	})
 
 	// writeFile is a helper to write content to a path, fatal on error.

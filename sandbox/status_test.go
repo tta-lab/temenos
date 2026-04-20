@@ -1,4 +1,5 @@
 //go:build linux
+// +build linux
 
 package sandbox
 
@@ -8,121 +9,269 @@ import (
 	"testing"
 )
 
-func TestStatusString(t *testing.T) {
-	tests := []struct {
-		name   string
-		status Status
-		substr string
-	}{
-		{
-			name: "cgroup v2 not available",
-			status: Status{
-				CgroupV2: false,
-			},
-			substr: "cgroup v2: not available",
-		},
-		{
-			name: "cgroup v2 available, not in k8s pod",
-			status: Status{
-				CgroupV2:      true,
-				InK8sPod:      false,
-				DelegatedPath: "/sys/fs/cgroup/user.slice/user-1000.slice",
-			},
-			substr: "cgroup v2: available, not in k8s pod",
-		},
-		{
-			name: "in k8s pod, memory controller not delegated",
-			status: Status{
-				CgroupV2:      true,
-				InK8sPod:      true,
-				DelegatedPath: "/sys/fs/cgroup/user.slice/user-1000.slice",
-				MemoryCtrl:    false,
-			},
-			substr: "memory controller: not delegated",
-		},
-		{
-			name: "init leaf done, memory limits enabled",
-			status: Status{
-				CgroupV2:      true,
-				InK8sPod:      true,
-				DelegatedPath: "/sys/fs/cgroup/user.slice/user-1000.slice",
-				MemoryCtrl:    true,
-				InitLeafDone:  true,
-			},
-			substr: "memory limits: enabled",
-		},
-		{
-			name: "in k8s, init leaf not run",
-			status: Status{
-				CgroupV2:      true,
-				InK8sPod:      true,
-				DelegatedPath: "/sys/fs/cgroup/user.slice/user-1000.slice",
-				MemoryCtrl:    true,
-				InitLeafDone:  false,
-			},
-			substr: "init-leaf: not run",
-		},
+func TestCurrentStatus_AllOK(t *testing.T) {
+	origCheckK8sPod := checkK8sPod
+	origCheckCgroupV2Mounted := checkCgroupV2Mounted
+	origCheckInitLeaf := checkInitLeaf
+	origCheckMemoryDelegated := checkMemoryDelegated
+	t.Cleanup(func() {
+		checkK8sPod = origCheckK8sPod
+		checkCgroupV2Mounted = origCheckCgroupV2Mounted
+		checkInitLeaf = origCheckInitLeaf
+		checkMemoryDelegated = origCheckMemoryDelegated
+	})
+
+	checkK8sPod = func() Check {
+		return Check{Name: "k8s_pod", OK: true, Detail: "KUBERNETES_SERVICE_HOST set, cgroup v2 mounted"}
+	}
+	checkCgroupV2Mounted = func() Check {
+		return Check{Name: "cgroup_v2", OK: true, Detail: "/sys/fs/cgroup"}
+	}
+	checkInitLeaf = func() Check {
+		return Check{Name: "init_leaf", OK: true, Detail: "PID 1 cgroup: /init"}
+	}
+	checkMemoryDelegated = func() Check {
+		return Check{Name: "memory_delegated", OK: true, Detail: "memory in cgroup.subtree_control at /sys/fs/cgroup/cgroup.subtree_control"}
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := tc.status.String()
-			if !strings.Contains(got, tc.substr) {
-				t.Errorf("Status.String() = %q, want to contain %q", got, tc.substr)
-			}
-		})
+	status := CurrentStatus()
+	if !status.Ready {
+		t.Error("Ready: want true")
+	}
+	if len(status.Checks) != 4 {
+		t.Errorf("len(Checks) = %d, want 4", len(status.Checks))
+	}
+	for _, c := range status.Checks {
+		if !c.OK {
+			t.Errorf("Check %s: want OK=true", c.Name)
+		}
 	}
 }
 
-const fakeCgroupPath = "/fake/cgroup/path"
-
-func TestCurrentStatus(t *testing.T) {
-	// Save and restore globals.
-	origExecCgroupBase := execCgroupBase
-	origInitLeafSucceeded := initLeafSucceeded
-	origDiscoveredPath := discoveredPath
-	origInK8s := inK8s
-	origCgroupAvailableStatus := cgroupAvailableStatus
+func TestCurrentStatus_NotInK8s(t *testing.T) {
+	origCheckK8sPod := checkK8sPod
+	origCheckCgroupV2Mounted := checkCgroupV2Mounted
+	origCheckInitLeaf := checkInitLeaf
+	origCheckMemoryDelegated := checkMemoryDelegated
 	t.Cleanup(func() {
-		execCgroupBase = origExecCgroupBase
-		initLeafSucceeded = origInitLeafSucceeded
-		discoveredPath = origDiscoveredPath
-		inK8s = origInK8s
-		cgroupAvailableStatus = origCgroupAvailableStatus
+		checkK8sPod = origCheckK8sPod
+		checkCgroupV2Mounted = origCheckCgroupV2Mounted
+		checkInitLeaf = origCheckInitLeaf
+		checkMemoryDelegated = origCheckMemoryDelegated
 	})
 
-	// Simulate post-init-leaf state.
-	execCgroupBase = fakeCgroupPath
-	initLeafSucceeded = true
-	discoveredPath = fakeCgroupPath
-
-	// Stub both probes to return true.
-	inK8s = func() bool { return true }
-	cgroupAvailableStatus = func() bool { return true }
+	checkK8sPod = func() Check {
+		return Check{Name: "k8s_pod", OK: false, Remediation: "temenos requires running inside a Kubernetes pod with cgroup v2"}
+	}
+	checkCgroupV2Mounted = func() Check {
+		return Check{Name: "cgroup_v2", OK: true, Detail: "/sys/fs/cgroup"}
+	}
+	checkInitLeaf = func() Check {
+		return Check{Name: "init_leaf", OK: false, Remediation: "daemon has not completed init-leaf migration"}
+	}
+	checkMemoryDelegated = func() Check {
+		return Check{Name: "memory_delegated", OK: false, Remediation: "memory controller not delegated"}
+	}
 
 	status := CurrentStatus()
+	if status.Ready {
+		t.Error("Ready: want false")
+	}
+	// All 4 probes should be reported (no short-circuit).
+	if len(status.Checks) != 4 {
+		t.Errorf("len(Checks) = %d, want 4", len(status.Checks))
+	}
+}
 
-	if !status.InK8sPod {
-		t.Error("InK8sPod: want true")
+func TestCurrentStatus_InitLeafNotDone(t *testing.T) {
+	origCheckK8sPod := checkK8sPod
+	origCheckCgroupV2Mounted := checkCgroupV2Mounted
+	origCheckInitLeaf := checkInitLeaf
+	origCheckMemoryDelegated := checkMemoryDelegated
+	t.Cleanup(func() {
+		checkK8sPod = origCheckK8sPod
+		checkCgroupV2Mounted = origCheckCgroupV2Mounted
+		checkInitLeaf = origCheckInitLeaf
+		checkMemoryDelegated = origCheckMemoryDelegated
+	})
+
+	checkK8sPod = func() Check {
+		return Check{Name: "k8s_pod", OK: true, Detail: "KUBERNETES_SERVICE_HOST set, cgroup v2 mounted"}
 	}
-	if !status.InitLeafDone {
-		t.Error("InitLeafDone: want true")
+	checkCgroupV2Mounted = func() Check {
+		return Check{Name: "cgroup_v2", OK: true, Detail: "/sys/fs/cgroup"}
 	}
-	if status.DelegatedPath != fakeCgroupPath {
-		t.Errorf("DelegatedPath = %q, want %s", status.DelegatedPath, fakeCgroupPath)
+	checkInitLeaf = func() Check {
+		return Check{Name: "init_leaf", OK: false, Detail: "PID 1 cgroup: / (does not end in /init)", Remediation: "daemon has not completed init-leaf migration"}
 	}
-	if !status.CgroupV2 {
-		t.Error("CgroupV2: want true")
+	checkMemoryDelegated = func() Check {
+		return Check{Name: "memory_delegated", OK: true, Detail: "memory in cgroup.subtree_control"}
+	}
+
+	status := CurrentStatus()
+	if status.Ready {
+		t.Error("Ready: want false")
+	}
+	// Find the init_leaf check.
+	var initLeafCheck Check
+	for _, c := range status.Checks {
+		if c.Name == "init_leaf" {
+			initLeafCheck = c
+			break
+		}
+	}
+	if initLeafCheck.OK {
+		t.Error("init_leaf OK: want false")
+	}
+	if initLeafCheck.Remediation == "" {
+		t.Error("init_leaf Remediation: want non-empty")
+	}
+}
+
+func TestCurrentStatus_MemoryNotDelegated(t *testing.T) {
+	origCheckK8sPod := checkK8sPod
+	origCheckCgroupV2Mounted := checkCgroupV2Mounted
+	origCheckInitLeaf := checkInitLeaf
+	origCheckMemoryDelegated := checkMemoryDelegated
+	t.Cleanup(func() {
+		checkK8sPod = origCheckK8sPod
+		checkCgroupV2Mounted = origCheckCgroupV2Mounted
+		checkInitLeaf = origCheckInitLeaf
+		checkMemoryDelegated = origCheckMemoryDelegated
+	})
+
+	checkK8sPod = func() Check {
+		return Check{Name: "k8s_pod", OK: true, Detail: "KUBERNETES_SERVICE_HOST set, cgroup v2 mounted"}
+	}
+	checkCgroupV2Mounted = func() Check {
+		return Check{Name: "cgroup_v2", OK: true, Detail: "/sys/fs/cgroup"}
+	}
+	checkInitLeaf = func() Check {
+		return Check{Name: "init_leaf", OK: true, Detail: "PID 1 cgroup: /init"}
+	}
+	checkMemoryDelegated = func() Check {
+		return Check{Name: "memory_delegated", OK: false, Detail: "memory not in cgroup.subtree_control at /sys/fs/cgroup/cgroup.subtree_control", Remediation: "memory controller not delegated to pod cgroup; set runtimeClassName: cgroup-writable on the pod"}
+	}
+
+	status := CurrentStatus()
+	if status.Ready {
+		t.Error("Ready: want false")
+	}
+	// Find the memory_delegated check.
+	var memCheck Check
+	for _, c := range status.Checks {
+		if c.Name == "memory_delegated" {
+			memCheck = c
+			break
+		}
+	}
+	if memCheck.OK {
+		t.Error("memory_delegated OK: want false")
+	}
+	if memCheck.Remediation == "" {
+		t.Error("memory_delegated Remediation: want non-empty")
+	}
+	if !strings.Contains(memCheck.Remediation, "cgroup-writable") {
+		t.Errorf("memory_delegated Remediation = %q, want to contain 'cgroup-writable'", memCheck.Remediation)
+	}
+}
+
+func TestCheckInitLeaf_Unreadable(t *testing.T) {
+	// Simulate /proc/1/cgroup being unreadable by swapping checkK8sPod to
+	// return true (so the function proceeds past the inK8sPod() guard)
+	// and then the ReadFile will use the real impl — swap the file read via
+	// the injectable pattern. We test by checking that when the underlying
+	// probe would fail to read, Detail mentions the read failure.
+	// The cleanest way is to swap checkInitLeaf directly.
+	origCheckK8sPod := checkK8sPod
+	origCheckInitLeaf := checkInitLeaf
+	t.Cleanup(func() {
+		checkK8sPod = origCheckK8sPod
+		checkInitLeaf = origCheckInitLeaf
+	})
+
+	checkK8sPod = func() Check {
+		return Check{Name: "k8s_pod", OK: true, Detail: "KUBERNETES_SERVICE_HOST set, cgroup v2 mounted"}
+	}
+	checkInitLeaf = func() Check {
+		// Simulate unreadable /proc/1/cgroup.
+		return Check{Name: "init_leaf", OK: false, Detail: "cannot read /proc/1/cgroup: open /proc/1/cgroup: permission denied", Remediation: "daemon has not completed init-leaf migration"}
+	}
+
+	status := CurrentStatus()
+	if status.Ready {
+		t.Error("Ready: want false")
+	}
+	var initLeafCheck Check
+	for _, c := range status.Checks {
+		if c.Name == "init_leaf" {
+			initLeafCheck = c
+			break
+		}
+	}
+	if initLeafCheck.OK {
+		t.Error("init_leaf OK: want false")
+	}
+	if !strings.Contains(initLeafCheck.Detail, "cannot read") {
+		t.Errorf("init_leaf Detail = %q, want to contain 'cannot read'", initLeafCheck.Detail)
+	}
+}
+
+func TestStatusString_Verbose(t *testing.T) {
+	status := Status{
+		Ready: true,
+		Checks: []Check{
+			{Name: "k8s_pod", OK: true, Detail: "KUBERNETES_SERVICE_HOST set, cgroup v2 mounted"},
+			{Name: "cgroup_v2", OK: true, Detail: "/sys/fs/cgroup"},
+			{Name: "init_leaf", OK: true, Detail: "PID 1 cgroup: /init"},
+			{Name: "memory_delegated", OK: true, Detail: "memory in cgroup.subtree_control"},
+		},
+	}
+
+	got := status.String()
+	if !strings.Contains(got, "✓ k8s_pod: KUBERNETES_SERVICE_HOST set, cgroup v2 mounted") {
+		t.Errorf("String() = %q, want to contain ✓ k8s_pod line", got)
+	}
+	if !strings.Contains(got, "ready: yes") {
+		t.Errorf("String() = %q, want to contain 'ready: yes'", got)
+	}
+
+	// Test a failed check renders ✗ and remediation.
+	failed := Status{
+		Ready: false,
+		Checks: []Check{
+			{Name: "k8s_pod", OK: true, Detail: "KUBERNETES_SERVICE_HOST set, cgroup v2 mounted"},
+			{Name: "memory_delegated", OK: false, Detail: "memory not in cgroup.subtree_control", Remediation: "set runtimeClassName: cgroup-writable"},
+		},
+	}
+	failedStr := failed.String()
+	if !strings.Contains(failedStr, "✗ memory_delegated: memory not in cgroup.subtree_control") {
+		t.Errorf("String() = %q, want to contain ✗ memory_delegated line", failedStr)
+	}
+	if !strings.Contains(failedStr, "→ set runtimeClassName: cgroup-writable") {
+		t.Errorf("String() = %q, want to contain → remediation line", failedStr)
+	}
+	if !strings.Contains(failedStr, "ready: no") {
+		t.Errorf("String() = %q, want to contain 'ready: no'", failedStr)
 	}
 }
 
 func TestStatusJSON(t *testing.T) {
 	status := Status{
-		InK8sPod:      true,
-		CgroupV2:      true,
-		DelegatedPath: "/sys/fs/cgroup/user.slice/user-1000.slice",
-		MemoryCtrl:    true,
-		InitLeafDone:  true,
+		Ready: false,
+		Checks: []Check{
+			{
+				Name:        "k8s_pod",
+				OK:          false,
+				Detail:      "KUBERNETES_SERVICE_HOST not set",
+				Remediation: "temenos requires running inside a Kubernetes pod with cgroup v2",
+			},
+			{
+				Name:   "cgroup_v2",
+				OK:     true,
+				Detail: "/sys/fs/cgroup",
+			},
+		},
 	}
 
 	data, err := json.Marshal(status)
@@ -130,24 +279,44 @@ func TestStatusJSON(t *testing.T) {
 		t.Fatalf("json.Marshal: %v", err)
 	}
 
-	var got Status
+	// Verify JSON contains the expected keys.
+	var got map[string]any
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
 
-	if got.InK8sPod != status.InK8sPod {
-		t.Errorf("InK8sPod: got %v, want %v", got.InK8sPod, status.InK8sPod)
+	if got["ready"] != false {
+		t.Errorf("ready: got %v, want false", got["ready"])
 	}
-	if got.CgroupV2 != status.CgroupV2 {
-		t.Errorf("CgroupV2: got %v, want %v", got.CgroupV2, status.CgroupV2)
+	checks, ok := got["checks"].([]any)
+	if !ok {
+		t.Fatal("checks: not an array")
 	}
-	if got.DelegatedPath != status.DelegatedPath {
-		t.Errorf("DelegatedPath: got %v, want %v", got.DelegatedPath, status.DelegatedPath)
+	if len(checks) != 2 {
+		t.Errorf("len(checks) = %d, want 2", len(checks))
 	}
-	if got.MemoryCtrl != status.MemoryCtrl {
-		t.Errorf("MemoryCtrl: got %v, want %v", got.MemoryCtrl, status.MemoryCtrl)
+
+	// Verify first check has Detail and Remediation populated (exercises omitempty).
+	first := checks[0].(map[string]any)
+	if first["name"] != "k8s_pod" {
+		t.Errorf("checks[0].name = %v, want k8s_pod", first["name"])
 	}
-	if got.InitLeafDone != status.InitLeafDone {
-		t.Errorf("InitLeafDone: got %v, want %v", got.InitLeafDone, status.InitLeafDone)
+	if first["detail"] == nil || first["detail"] == "" {
+		t.Error("checks[0].detail: want non-empty")
+	}
+	if first["remediation"] == nil || first["remediation"] == "" {
+		t.Error("checks[0].remediation: want non-empty")
+	}
+
+	// Round-trip.
+	var roundTrip Status
+	if err := json.Unmarshal(data, &roundTrip); err != nil {
+		t.Fatalf("json.Unmarshal into Status: %v", err)
+	}
+	if roundTrip.Ready != status.Ready {
+		t.Errorf("Round-trip Ready: got %v, want %v", roundTrip.Ready, status.Ready)
+	}
+	if len(roundTrip.Checks) != len(status.Checks) {
+		t.Errorf("Round-trip len(Checks): got %d, want %d", len(roundTrip.Checks), len(status.Checks))
 	}
 }

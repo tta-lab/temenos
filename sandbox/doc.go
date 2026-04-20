@@ -16,7 +16,7 @@
 // delegated to the container). The daemon fails fast at startup if the
 // environment doesn't support it.
 //
-// Check diagnostics with: temenos sandbox status
+// Check diagnostics with: temenos doctor
 //
 // Plane: temenos
 package sandbox
