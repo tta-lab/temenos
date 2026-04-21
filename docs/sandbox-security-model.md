@@ -102,7 +102,7 @@ Matching is **case-sensitive** (POSIX env convention).
 
 A built-in baseline of universally-safe env keys (USER, LOGNAME, LANG,
 LC_*, TZ, HOME, PWD, TMPDIR, SHELL, COLUMNS, LINES, DEBUG, CI, NO_COLOR,
-FORCE_COLOR) is always applied. Operator `allow_env` extends — does not
+FORCE_COLOR, TMUX, TMUX_PANE) is always applied. Operator `allow_env` extends — does not
 replace — this list. To inspect the merged set programmatically, call
 `Config.EffectiveAllowEnv()`. The baseline definition and exclusion
 rationale live in `internal/config/baseline.go`.
@@ -138,6 +138,16 @@ precedence in `os/exec`).
 overrides the `buildEnv` fallback (`/home/agent`). Tools that resolve
 `~/.gitconfig` etc. will see the real HOME — but sandbox filesystem
 policy (seatbelt/bwrap mounts) is the security boundary, not env hiding.
+
+`TMUX` and `TMUX_PANE` are in BaselineAllowEnv: they expose the tmux
+session/pane handle used by ttal CLI inside worker sandboxes (alert
+prefixing, cross-agent notification on comment add, reviewer-window
+cleanup on LGTM, session attribution on pipeline advance). The tmux
+socket is protected by filesystem policy, not env hiding. On macOS
+(seatbelt), /tmp allows metadata-read only; on Linux (bwrap), /tmp is
+an isolated tmpfs — the host tmux socket at /tmp/tmux-* is completely
+invisible inside the sandbox. Forwarding the handle is safe on both
+platforms.
 
 ## Architecture
 

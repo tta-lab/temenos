@@ -96,7 +96,7 @@ Callers cannot extend `allow_env` per-request — it is intentionally operator-o
 
 Temenos ships with a built-in baseline of universally-safe env keys
 (identity, locale/time, standard paths, shell, terminal sizing, common
-diagnostic flags). Operator config in `allow_env` **extends** the baseline
+diagnostic flags, tmux session identity). Operator config in `allow_env` **extends** the baseline
 — it does not replace it. The full baseline list and exclusion rationale
 live in `internal/config/baseline.go`.
 
