@@ -36,7 +36,8 @@ var (
 	cgroupReady     atomic.Bool
 	cgroupAvailBool bool
 	cgroupReason    error // nil iff cgroupAvailBool == true; else one of the sentinels below.
-	discoveredPath  string
+	//nolint:unused
+	discoveredPath string
 )
 
 // Sentinel reasons for why cgroup v2 with memory delegation is unavailable.

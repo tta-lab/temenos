@@ -54,9 +54,6 @@ var initLeafOnce sync.Once
 // initLeafErr holds the result of the one-time init-leaf setup.
 var initLeafErr error
 
-// initLeafSucceeded is true when setupInitLeaf was called and succeeded.
-var initLeafSucceeded bool
-
 // execCgroupBase is the path under which per-exec cgroups are created.
 // Set by setupInitLeaf after migration (so it refers to selfCgroup, not selfCgroup/init).
 var execCgroupBase string
@@ -75,7 +72,6 @@ var statCgroupControllers = func() bool {
 func setupInitLeaf() error {
 	initLeafOnce.Do(func() {
 		initLeafErr = runInitLeaf()
-		initLeafSucceeded = initLeafErr == nil
 	})
 	return initLeafErr
 }

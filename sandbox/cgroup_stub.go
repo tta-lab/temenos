@@ -1,60 +1,66 @@
 //go:build !linux
+// +build !linux
 
 package sandbox
 
 import "errors"
 
-// cgroupExec is a no-op on non-Linux platforms.
+// setupInitLeaf is a no-op on non-Linux.
 //
 //nolint:unused
-type cgroupExec struct{}
+func setupInitLeaf() error { return errors.New("setupInitLeaf: requires Linux") }
 
-// newCgroupExec is a no-op on non-Linux.
+// cgroupAvailable returns false on non-Linux.
 //
 //nolint:unused
-func newCgroupExec(_ int) (*cgroupExec, error) { return nil, nil }
-
-// addPID is a no-op on non-Linux.
-//
-//nolint:unused
-func (c *cgroupExec) addPID(_ int) error { return nil }
-
-// cleanup is a no-op on non-Linux.
-//
-//nolint:unused
-func (c *cgroupExec) cleanup() {}
-
-// cgroupAvailable always returns false on non-Linux platforms.
 func cgroupAvailable() bool { return false }
-
-// cgroupV2Reason on non-Linux platforms always reports the platform sentinel.
-//
-//nolint:unused
-func cgroupV2Reason() error { return errors.New("cgroup v2 not supported on this platform") }
-
-// discoverDelegatedPath always returns ("", false) on non-Linux.
-//
-//nolint:unused
-func discoverDelegatedPath(_ string) (string, bool) { return "", false }
-
-// setupInitLeaf always returns nil on non-Linux.
-//
-//nolint:unused
-func setupInitLeaf() error { return nil }
 
 // inK8sPod always returns false on non-Linux.
 //
 //nolint:unused
 func inK8sPod() bool { return false }
 
-// SetupCgroupV2 always returns nil on non-Linux.
+// SetupCgroupV2 is a no-op on non-Linux.
 func SetupCgroupV2() error { return nil }
 
-// Status describes the sandbox environment. Empty on non-Linux.
-type Status struct{}
+// Status describes the sandbox environment on non-Linux platforms.
+type Status struct {
+	Ready  bool    `json:"ready"`
+	Checks []Check `json:"checks"`
+}
+
+// Check is one diagnostic probe result on non-Linux.
+type Check struct {
+	Name        string `json:"name"`
+	OK          bool   `json:"ok"`
+	Detail      string `json:"detail,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
+}
 
 // String implements fmt.Stringer for non-Linux.
-func (s Status) String() string { return "sandbox status: not available on this platform" }
+func (s Status) String() string { return "temenos doctor: not available on this platform" }
 
-// CurrentStatus always returns an empty status on non-Linux.
-func CurrentStatus() Status { return Status{} }
+// NewStatus constructs a Status from a list of checks, computing Ready from the
+// checks' OK fields.
+func NewStatus(checks []Check) Status {
+	ready := true
+	for _, c := range checks {
+		if !c.OK {
+			ready = false
+		}
+	}
+	return Status{Ready: ready, Checks: checks}
+}
+
+// CurrentStatus always returns a single platform-unsupported check on non-Linux.
+func CurrentStatus() Status {
+	return Status{
+		Ready: false,
+		Checks: []Check{{
+			Name:        "platform",
+			OK:          false,
+			Detail:      "non-Linux",
+			Remediation: "temenos cgroup v2 sandbox requires Linux",
+		}},
+	}
+}
