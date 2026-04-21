@@ -38,6 +38,18 @@ package config
 //	*_TOKEN, *_SECRET, *_PASSWORD, *_KEY
 //	            Sensitive — must be explicitly opted in by name.
 //
+// Note on TMUX / TMUX_PANE: these are in baseline. They expose the
+// tmux session/pane handle that ttal CLI commands (alert, comment add,
+// comment lgtm, go, pr create) read inside worker sandboxes to prefix
+// alerts with the session name, ping counterpart agents via tmux
+// notification, auto-close reviewer windows on LGTM, and attribute
+// pipeline advances to the caller session. Real privilege over tmux
+// comes from filesystem policy on the tmux socket (outside the
+// sandbox's allow_write), not env exposure — so forwarding the handle
+// is safe. Without them, ttal CLI degrades gracefully but loses ops
+// quality (missed review notifications, orphaned reviewer windows, no
+// session context in alerts).
+
 // Note on HOME: HOME is in baseline. The sandbox.buildEnv fallback only
 // injects HOME when cfg.Env doesn't already set it; with HOME in baseline
 // (and HOME present in the caller's env), the caller's HOME is forwarded.
@@ -64,6 +76,9 @@ var BaselineAllowEnv = []string{
 	"CI",
 	"NO_COLOR",
 	"FORCE_COLOR",
+	// Session identity (tmux)
+	"TMUX",
+	"TMUX_PANE",
 }
 
 func init() {
