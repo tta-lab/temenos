@@ -129,7 +129,7 @@ func checkCgroupV2MountedImpl() Check {
 // Assumes temenos is PID 1 in the pod (standard k8s deployment). Sidecar
 // deployments are unsupported and will probe the wrong process's cgroup.
 func checkInitLeafImpl() Check {
-	if !inK8sPod() {
+	if !checkK8sPod().OK {
 		return Check{
 			Name:        "init_leaf",
 			OK:          false,
@@ -170,7 +170,7 @@ func checkInitLeafImpl() Check {
 // The parent is the same directory semantics as execCgroupBase — setupInitLeaf
 // enables +memory on the parent so that the /init leaf can have memory limits.
 func checkMemoryDelegatedImpl() Check {
-	if !inK8sPod() {
+	if !checkK8sPod().OK {
 		return Check{
 			Name:        "memory_delegated",
 			OK:          false,
