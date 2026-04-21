@@ -143,8 +143,11 @@ policy (seatbelt/bwrap mounts) is the security boundary, not env hiding.
 session/pane handle used by ttal CLI inside worker sandboxes (alert
 prefixing, cross-agent notification on comment add, reviewer-window
 cleanup on LGTM, session attribution on pipeline advance). The tmux
-socket itself is protected by filesystem policy (outside sandbox
-allow_write), not env hiding — so forwarding the handle is safe.
+socket is protected by filesystem policy, not env hiding. On macOS
+(seatbelt), /tmp allows metadata-read only; on Linux (bwrap), /tmp is
+an isolated tmpfs — the host tmux socket at /tmp/tmux-* is completely
+invisible inside the sandbox. Forwarding the handle is safe on both
+platforms.
 
 ## Architecture
 

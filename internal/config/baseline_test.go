@@ -93,12 +93,9 @@ func TestFilterEnv_BaselinePassesWithoutUserConfig(t *testing.T) {
 	assert.Equal(t, []string{"GITHUB_TOKEN", "MY_VAR"}, stripped)
 }
 
-// TestBaselineAllowEnv_IncludesTmuxSessionKeys is a positive-membership
-// guard: TMUX and TMUX_PANE are deliberately in the baseline so ttal CLI
-// inside worker sandboxes can prefix alerts with the tmux session name,
-// ping counterpart agents on comment add, auto-close reviewer windows on
-// LGTM, and attribute pipeline advances. Removing either key silently
-// degrades these ops paths — see baseline.go rationale block.
+// Rationale: see BaselineAllowEnv doc in baseline.go. Removing either key
+// silently degrades ttal CLI ops paths (session prefixing, notifications,
+// reviewer-window cleanup, pipeline attribution).
 func TestBaselineAllowEnv_IncludesTmuxSessionKeys(t *testing.T) {
 	for _, required := range []string{"TMUX", "TMUX_PANE"} {
 		assert.Truef(t, slices.Contains(BaselineAllowEnv, required),
@@ -114,7 +111,7 @@ func TestFilterEnv_TmuxKeysPassBaseline(t *testing.T) {
 	env := map[string]string{
 		"TMUX":        "/private/tmp/tmux-501/default,12345,3",
 		"TMUX_PANE":   "%17",
-		"TMUX_WINDOW": "1",
+		"TMUX_WINDOW": "1", // Not in baseline — should be stripped
 		"UNRELATED":   "stripped",
 	}
 	allowed, stripped := cfg.FilterEnv(env)
