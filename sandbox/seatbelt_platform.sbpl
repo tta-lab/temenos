@@ -5,6 +5,7 @@
   (subpath "/Library/Preferences/Logging")
   (subpath "/private/var/db/DarwinDirectory/local/recordStore.data")
   (subpath "/private/var/db/timezone")
+  (literal "/System/Library/CoreServices/SystemVersion.plist")
   (subpath "/usr/lib")
   (subpath "/usr/share")
   (subpath "/Library/Preferences")
