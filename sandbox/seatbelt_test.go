@@ -194,3 +194,30 @@ func TestSeatbeltSandbox_TempHomeCleanup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before, len(entries), "temp dirs should be cleaned up after Exec")
 }
+func TestSeatbeltSandbox_GitVersion_NoSDKWarning(t *testing.T) {
+	requireSandboxExec(t)
+	if _, err := os.Stat("/usr/bin/git"); err != nil {
+		t.Skip("/usr/bin/git not present -- skipping xcselect-stub regression test")
+	}
+
+	s := &SeatbeltSandbox{Timeout: 10 * time.Second}
+	stdout, stderr, code, err := s.Exec(t.Context(), "git --version", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, code)
+
+	// Regression: xcselect stub reads /System/Library/CoreServices/SystemVersion.plist
+	// to determine host OS version. Without file-read* access it emits:
+	//   stdout: "git: error: unable to read SDK settings for '/'"
+	//   stdout: "git: warning: unable to determine the version of the host OS"
+	// Both assertions check both streams for robustness against behavior changes.
+	for _, stream := range []struct{ name, out string }{
+		{"stdout", stdout}, {"stderr", stderr},
+	} {
+		assert.NotContains(t, stream.out, "unable to read SDK settings",
+			"%s: xcselect stub must not emit SDK warning", stream.name)
+		assert.NotContains(t, stream.out, "unable to determine the version",
+			"%s: xcselect stub must not emit OS version warning", stream.name)
+	}
+	assert.Contains(t, stdout, "git version", "git should still print a version line")
+}
