@@ -207,11 +207,10 @@ func TestSeatbeltSandbox_GitVersion_NoSDKWarning(t *testing.T) {
 	assert.Equal(t, 0, code)
 
 	// Regression: xcselect stub reads /System/Library/CoreServices/SystemVersion.plist
-	// to determine host OS version. Without file-read* access it emits two warnings:
-	//   "git: error: unable to read SDK settings for '/'"
-	//   "git: warning: unable to determine the version of the host OS"
-	// Observed empirically on stdout (Apple's stub writes via plain printf),
-	// but assert on both streams for robustness against future behavior changes.
+	// to determine host OS version. Without file-read* access it emits:
+	//   stdout: "git: error: unable to read SDK settings for '/'"
+	//   stdout: "git: warning: unable to determine the version of the host OS"
+	// Both assertions check both streams for robustness against behavior changes.
 	for _, stream := range []struct{ name, out string }{
 		{"stdout", stdout}, {"stderr", stderr},
 	} {

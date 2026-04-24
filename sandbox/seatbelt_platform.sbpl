@@ -5,6 +5,8 @@
   (subpath "/Library/Preferences/Logging")
   (subpath "/private/var/db/DarwinDirectory/local/recordStore.data")
   (subpath "/private/var/db/timezone")
+  ; Allow reading SystemVersion.plist so xcselect stubs (git, clang, etc.)
+  ; can determine the host OS version for SDK resolution.
   (literal "/System/Library/CoreServices/SystemVersion.plist")
   (subpath "/usr/lib")
   (subpath "/usr/share")
