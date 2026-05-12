@@ -68,6 +68,11 @@ func linuxToolDirs() []ToolDir {
 			BinDir:   "/snap/bin",
 			ReadDirs: []string{"/snap"},
 		},
+		// NixOS system profile.
+		{
+			BinDir:   "/run/current-system/sw/bin",
+			ReadDirs: []string{"/run/current-system/sw"},
+		},
 	}
 	return dirs
 }

@@ -50,6 +50,15 @@ func TestStaticToolDirs_ReturnsForPlatform(t *testing.T) {
 		assert.Contains(t, binDirs, "/opt/homebrew/bin")
 		// /usr/local/bin must not be a ToolDir BinDir — it comes from the base PATH.
 		assert.NotContains(t, binDirs, "/usr/local/bin")
+	} else {
+		dirMap := make(map[string]ToolDir, len(dirs))
+		for _, td := range dirs {
+			dirMap[td.BinDir] = td
+		}
+
+		nixProfile, ok := dirMap["/run/current-system/sw/bin"]
+		require.True(t, ok, "expected NixOS system profile bin dir")
+		assert.Equal(t, []string{"/run/current-system/sw"}, nixProfile.ReadDirs)
 	}
 }
 
