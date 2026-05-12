@@ -57,6 +57,7 @@ policy. Only directories that exist on disk are included.
 | Intel Homebrew | `/usr/local/bin` | `/usr/local` | macOS |
 | Linuxbrew | `/home/linuxbrew/.linuxbrew/bin` | `/home/linuxbrew/.linuxbrew` | Linux |
 | Snap | `/snap/bin` | `/snap` | Linux |
+| NixOS system profile | `/run/current-system/sw/bin` | `/run/current-system/sw` | Linux |
 | Go (GOPATH) | `$GOPATH/bin` or `~/go/bin` | same | both |
 | Cargo (Rust) | `~/.cargo/bin` | same | both |
 | mise | `~/.local/share/mise/shims` | `~/.local/share/mise` | both |

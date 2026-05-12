@@ -160,8 +160,8 @@ func appendBwrapToolBinds(args []string) []string {
 }
 
 // appendNixStoreBind adds a read-only bind mount for /nix/store if it exists.
-// NixOS stores the system executables there (including shell), so this avoids
-// `bwrap: execvp bash: No such file or directory`.
+// NixOS profile entries are symlinks into the store, so both the profile and
+// store need to be visible inside the sandbox.
 func appendNixStoreBind(args []string) []string {
 	if _, err := bwrapNixStoreStat(bwrapNixStorePath); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
