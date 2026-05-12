@@ -149,6 +149,7 @@ Uses `/usr/bin/sandbox-exec` with an embedded `.sbpl` deny-default policy. Each 
 ### Linux — Bubblewrap
 
 Uses `bwrap` with namespace isolation (`--unshare-all`). Read-only binds for `/usr`, `/bin`, `/lib`, DNS, and TLS certs. Allowed paths are added as explicit bind mounts.
+On NixOS systems, Temenos also adds a read-only bind for `/nix/store` so `bash` and other store-based runtime tools are available inside the sandbox.
 
 ### Fallbacks
 

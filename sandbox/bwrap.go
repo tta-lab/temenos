@@ -22,6 +22,10 @@ type BwrapSandbox struct {
 	MemoryLimitMB int // 0 = no limit
 }
 
+const bwrapNixStorePath = "/nix/store"
+
+var bwrapNixStoreStat = os.Stat
+
 // Exec runs a bash command inside the bubblewrap sandbox.
 func (s *BwrapSandbox) Exec(
 	ctx context.Context, command string, cfg *ExecConfig,
@@ -93,6 +97,7 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 	// Mount discovered tool directories (GOPATH/bin, cargo, etc.)
 	// as read-only inside the sandbox. See paths.go.
 	args = appendBwrapToolBinds(args)
+	args = appendNixStoreBind(args)
 
 	if cfg != nil {
 		for _, m := range cfg.MountDirs {
@@ -152,6 +157,32 @@ func appendBwrapToolBinds(args []string) []string {
 		}
 	}
 	return args
+}
+
+// appendNixStoreBind adds a read-only bind mount for /nix/store if it exists.
+// NixOS stores the system executables there (including shell), so this avoids
+// `bwrap: execvp bash: No such file or directory`.
+func appendNixStoreBind(args []string) []string {
+	if _, err := bwrapNixStoreStat(bwrapNixStorePath); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			slog.Warn("sandbox: unexpected error checking nix store; skipped",
+				"path", bwrapNixStorePath, "err", err)
+		}
+		return args
+	}
+	if isBound(args, bwrapNixStorePath) {
+		return args
+	}
+	return append(args, "--ro-bind", bwrapNixStorePath, bwrapNixStorePath)
+}
+
+func isBound(args []string, source string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if (args[i] == "--ro-bind" || args[i] == "--bind") && args[i+1] == source {
+			return true
+		}
+	}
+	return false
 }
 
 // coveredByStaticRoot returns true if path is equal to or a subdir of

@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -65,6 +66,72 @@ func TestBwrapSandbox_BuildArgs_WithMounts(t *testing.T) {
 		}
 	}
 	assert.True(t, foundBind, "expected --bind for /tmp")
+}
+
+func TestAppendNixStoreBind_AddsWhenStoreExists(t *testing.T) {
+	prev := bwrapNixStoreStat
+	bwrapNixStoreStat = func(path string) (fs.FileInfo, error) {
+		require.Equal(t, bwrapNixStorePath, path)
+		return nil, nil
+	}
+	t.Cleanup(func() { bwrapNixStoreStat = prev })
+
+	args := appendNixStoreBind(nil)
+	require.Len(t, args, 3)
+	assert.Equal(t, "--ro-bind", args[0])
+	assert.Equal(t, bwrapNixStorePath, args[1])
+	assert.Equal(t, bwrapNixStorePath, args[2])
+}
+
+func TestAppendNixStoreBind_SkipsWhenStoreMissing(t *testing.T) {
+	prev := bwrapNixStoreStat
+	bwrapNixStoreStat = func(path string) (fs.FileInfo, error) {
+		require.Equal(t, bwrapNixStorePath, path)
+		return nil, fs.ErrNotExist
+	}
+	t.Cleanup(func() { bwrapNixStoreStat = prev })
+
+	args := appendNixStoreBind(nil)
+	for _, a := range args {
+		assert.NotEqual(t, bwrapNixStorePath, a, "nix store path should be skipped when missing")
+	}
+}
+
+func TestBuildArgs_IncludesNixStoreWhenAvailable(t *testing.T) {
+	prev := bwrapNixStoreStat
+	bwrapNixStoreStat = func(path string) (fs.FileInfo, error) {
+		require.Equal(t, bwrapNixStorePath, path)
+		return nil, nil
+	}
+	t.Cleanup(func() { bwrapNixStoreStat = prev })
+
+	s := &BwrapSandbox{BwrapPath: "bwrap"}
+	args := s.buildArgs("echo hello", nil)
+
+	foundNixStore := false
+	for i, a := range args {
+		if a == "--ro-bind" && i+2 < len(args) && args[i+1] == bwrapNixStorePath {
+			foundNixStore = true
+			break
+		}
+	}
+	assert.True(t, foundNixStore, "expected /nix/store ro-bind in buildArgs")
+}
+
+func TestBuildArgs_ExcludesNixStoreWhenMissing(t *testing.T) {
+	prev := bwrapNixStoreStat
+	bwrapNixStoreStat = func(path string) (fs.FileInfo, error) {
+		require.Equal(t, bwrapNixStorePath, path)
+		return nil, fs.ErrNotExist
+	}
+	t.Cleanup(func() { bwrapNixStoreStat = prev })
+
+	s := &BwrapSandbox{BwrapPath: "bwrap"}
+	args := s.buildArgs("echo hello", nil)
+
+	for _, a := range args {
+		assert.NotEqual(t, bwrapNixStorePath, a, "nix store path should be excluded when missing")
+	}
 }
 
 func TestBwrapSandbox_BuildArgs_WithWorkingDir(t *testing.T) {

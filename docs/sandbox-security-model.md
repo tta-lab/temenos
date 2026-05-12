@@ -26,6 +26,13 @@ addresses this directly.
 
 ## What Is Allowed (Read-Only)
 
+### Linux (NixOS) Additional Mount
+
+On NixOS, `bash` and many tool binaries are loaded from `/nix/store`, so
+`/nix/store` is mounted read-only into the sandbox as part of the default
+bubblewrap setup. This is detected at runtime and only applied when
+`/nix/store` exists.
+
 ### Static OS Paths (in `.sbpl` templates)
 
 Always available on the platform, never change:
