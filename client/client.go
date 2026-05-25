@@ -101,11 +101,13 @@ func New(addr string) (*Client, error) {
 
 // RunRequest is the body for POST /run.
 type RunRequest struct {
-	Command      string            `json:"command"`
-	Env          map[string]string `json:"env,omitempty"`
-	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`
-	Network      *bool             `json:"network,omitempty"`
-	Timeout      int               `json:"timeout,omitempty"` // seconds, 0 = default
+	Command             string            `json:"command"`
+	Env                 map[string]string `json:"env,omitempty"`
+	AllowedPaths        []AllowedPath     `json:"allowed_paths,omitempty"`
+	Network             *bool             `json:"network,omitempty"`
+	Timeout             int               `json:"timeout,omitempty"` // seconds, 0 = default
+	CallerID            string            `json:"caller_id,omitempty"`
+	AutoBackgroundAfter int               `json:"auto_background_after,omitempty"`
 }
 
 // AllowedPath specifies a filesystem path allowed in the sandbox.
@@ -121,6 +123,8 @@ type RunResponse struct {
 	Stderr          string   `json:"stderr"`
 	ExitCode        int      `json:"exit_code"`
 	StrippedEnvKeys []string `json:"stripped_env_keys,omitempty"`
+	JobID           string   `json:"job_id,omitempty"`
+	Status          string   `json:"status,omitempty"`
 }
 
 // postJSON marshals req as JSON, POSTs it to path, and decodes the response into Resp.
@@ -181,4 +185,113 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("temenos: health check returned HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// JobInfo represents a background job's state.
+type JobInfo struct {
+	ID          string `json:"id"`
+	CallerID    string `json:"caller_id,omitempty"`
+	Command     string `json:"command"`
+	Status      string `json:"status"`
+	ExitCode    int    `json:"exit_code,omitempty"`
+	Stdout      string `json:"stdout,omitempty"`
+	Stderr      string `json:"stderr,omitempty"`
+	StartedAt   string `json:"started_at"`
+	CompletedAt string `json:"completed_at,omitempty"`
+}
+
+// ListJobs returns background jobs matching the filter.
+func (c *Client) ListJobs(ctx context.Context, callerID, status string) ([]JobInfo, error) {
+	url := c.baseURL + "/jobs"
+	params := []string{}
+	if callerID != "" {
+		params = append(params, "caller_id="+callerID)
+	}
+	if status != "" {
+		params = append(params, "status="+status)
+	}
+	if len(params) > 0 {
+		url += "?" + strings.Join(params, "&")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("temenos: daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("temenos: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+
+	var jobs []JobInfo
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		return nil, fmt.Errorf("temenos: decode response: %w", err)
+	}
+	return jobs, nil
+}
+
+// GetJob returns a single job's state including output.
+func (c *Client) GetJob(ctx context.Context, id string) (*JobInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/jobs/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("temenos: daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("temenos: job %s not found", id)
+	}
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("temenos: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+
+	var job JobInfo
+	if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
+		return nil, fmt.Errorf("temenos: decode response: %w", err)
+	}
+	return &job, nil
+}
+
+// KillJob terminates a running background job.
+func (c *Client) KillJob(ctx context.Context, id string) (*JobInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/jobs/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("temenos: daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("temenos: job %s not found", id)
+	}
+	if resp.StatusCode == http.StatusConflict {
+		return nil, fmt.Errorf("temenos: job %s already completed", id)
+	}
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("temenos: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
+	}
+
+	var job JobInfo
+	if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
+		return nil, fmt.Errorf("temenos: decode response: %w", err)
+	}
+	return &job, nil
 }

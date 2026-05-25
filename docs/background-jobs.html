@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temenos Background Jobs — Design</title>
+<style>
+  :root {
+    --bg: #0d1117; --fg: #c9d1d9; --accent: #58a6ff;
+    --muted: #8b949e; --border: #30363d; --surface: #161b22;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--fg); line-height: 1.6;
+    max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem;
+  }
+  h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.3rem; margin-top: 2.5rem; margin-bottom: 0.75rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h3 { font-size: 1.1rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+  p, li { color: var(--fg); margin-bottom: 0.5rem; }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; }
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    background: var(--surface); padding: 0.15em 0.4em; border-radius: 4px;
+    font-size: 0.9em; color: var(--green);
+  }
+  pre {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1rem; overflow-x: auto;
+    margin: 0.75rem 0 1rem; font-size: 0.85rem; line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; color: var(--fg); }
+  ul, ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+  li { margin-bottom: 0.3rem; }
+  table { border-collapse: collapse; width: 100%; margin: 0.75rem 0 1rem; }
+  th, td { border: 1px solid var(--border); padding: 0.5rem 0.75rem; text-align: left; font-size: 0.9rem; }
+  th { background: var(--surface); color: var(--muted); font-weight: 600; }
+  .note { background: var(--surface); border-left: 3px solid var(--yellow); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+  .note strong { color: var(--yellow); }
+  .diff-add { color: var(--green); }
+  .diff-remove { color: var(--red); text-decoration: line-through; }
+  a { color: var(--accent); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Temenos Background Jobs</h1>
+<p class="subtitle">Design document &mdash; 2026-05-25</p>
+
+<h2>Problem</h2>
+<p>
+  Temenos's <code>POST /run</code> and MCP <code>bash</code> tool are fully synchronous.
+  The caller blocks until the sandboxed command finishes or the context deadline kills it.
+  The default timeout is 120 seconds &mdash; long enough to waste agent turns on builds,
+  installs, and test runs, but not long enough for genuinely slow work.
+</p>
+<p>
+  A short auto-background timeout (15s) lets fast commands return synchronously while
+  long-running ones detach into pollable jobs. The agent gets immediate feedback and can
+  choose to check back or continue other work.
+</p>
+
+<h2>Reference: Crush</h2>
+<p>
+  <a href="https://github.com/charmbracelet/crush">Crush</a> (the basis for Lenos) implements
+  this pattern in-process:
+</p>
+<ul>
+  <li>Every command starts as a <code>BackgroundShell</code> via <code>BackgroundShellManager</code></li>
+  <li>A 100ms polling loop waits up to <code>DefaultAutoBackgroundAfter</code> seconds</li>
+  <li>If done in time &rarr; return synchronously (job removed from manager)</li>
+  <li>If still running &rarr; return job ID + message: <em>"Use job_output tool to view output or job_kill to terminate"</em></li>
+  <li>No partial output in the initial background response &mdash; model calls <code>job_output</code> if it wants to see stdout/stderr</li>
+  <li>Max 100 concurrent background jobs</li>
+</ul>
+
+<p>
+  Temenos adapts this pattern for a daemon architecture: the job registry lives in the daemon,
+  exposed over the admin socket. Lenos polls from the outside.
+</p>
+
+<h2>Architecture</h2>
+
+<h3>Socket Model</h3>
+<p>Two unix sockets, same daemon process:</p>
+<table>
+  <tr><th>Socket</th><th>Path</th><th>Permissions</th><th>Endpoints</th><th>Consumer</th></tr>
+  <tr>
+    <td>Admin</td>
+    <td><code>~/.temenos/daemon.sock</code></td>
+    <td><code>0o600</code></td>
+    <td><code>/run</code>, <code>/health</code>, <code>/session/*</code>, <code>/jobs/*</code></td>
+    <td>Lenos (privileged)</td>
+  </tr>
+  <tr>
+    <td>Job API</td>
+    <td><code>~/.temenos/job.sock</code></td>
+    <td><code>0o600</code></td>
+    <td><code>/jobs/*</code> only</td>
+    <td>Agents via <code>temenos job</code> CLI</td>
+  </tr>
+</table>
+
+<p>
+  The job socket is a strict subset of the admin socket &mdash; same handlers, fewer routes.
+  Agents cannot reach <code>/run</code> or <code>/session/*</code>, so they cannot bypass
+  sandbox restrictions by crafting arbitrary <code>AllowedPaths</code>.
+</p>
+
+<h3>Sequence: Auto-Background</h3>
+<pre><code>Agent (bash)                   Temenos                      Background Job
+     |                            |                              |
+     |-- POST /run --------------&gt;|                              |
+     |   {command, caller_id,     |                              |
+     |    auto_background_after}  |                              |
+     |                            |-- start process -------------&gt;|
+     |                            |                              |
+     |                            |   [poll every 100ms]         |
+     |                            |&lt;-- stdout/stderr (streaming)-|
+     |                            |                              |
+     |   [15s threshold]          |                              |
+     |                            |                              |
+     |&lt;-- {job_id, status:"bg"} --|                              |
+     |                            |                              |
+     |  (agent continues work)    |                              |
+     |                            |                              |
+     |                            |   [process completes]        |
+     |                            |&lt;-- exit_code, final output --|
+     |                            |                              |
+     |                            |   (Lenos polls /jobs,        |
+     |                            |    injects result into       |
+     |                            |    agent conversation)       |
+</code></pre>
+
+<h3>Sequence: Fast Completion</h3>
+<pre><code>Agent (bash)                   Temenos
+     |                            |
+     |-- POST /run --------------&gt;|
+     |   {command, caller_id,     |
+     |    auto_background_after}  |
+     |                            |-- start process
+     |                            |
+     |   [completes in &lt;15s]      |
+     |                            |
+     |&lt;-- {stdout, stderr,        |
+     |     exit_code}             |
+     |   (no job_id, normal)      |
+</code></pre>
+
+<h2>API Changes</h2>
+
+<h3><code>POST /run</code> &mdash; Extended Request</h3>
+<pre><code>{
+  "command": "go build ./...",
+  "caller_id": "lenos-session-abc123",
+  "auto_background_after": 15
+}</code></pre>
+
+<table>
+  <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>caller_id</code></td><td>string</td><td><code>""</code></td><td>Caller-assigned identifier. Used to filter jobs by caller. Lenos passes its session ID.</td></tr>
+  <tr><td><code>auto_background_after</code></td><td>int</td><td><code>15</code></td><td>Seconds to wait before moving to background. 0 = synchronous (current behavior, default timeout applies).</td></tr>
+</table>
+
+<h3><code>POST /run</code> &mdash; Response (Background)</h3>
+<p>When a command exceeds <code>auto_background_after</code>:</p>
+<pre><code>{
+  "job_id": "a1b2c3",
+  "status": "background"
+}</code></pre>
+<p>No partial output. The model calls <code>temenos job log &lt;id&gt;</code> if it wants to see stdout/stderr.</p>
+
+<h3><code>GET /jobs</code></h3>
+<pre><code>GET /jobs?status=running&amp;caller_id=lenos-session-abc123</code></pre>
+<table>
+  <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>status</code></td><td>string</td><td><code>running</code>, <code>completed</code>, <code>killed</code>, <code>all</code>. Default: <code>all</code>.</td></tr>
+  <tr><td><code>caller_id</code></td><td>string</td><td>Filter by caller. Optional.</td></tr>
+</table>
+
+<p>Response:</p>
+<pre><code>[
+  {
+    "id": "a1b2c3",
+    "caller_id": "lenos-session-abc123",
+    "command": "go build ./...",
+    "status": "running",
+    "started_at": "2026-05-25T10:30:00Z"
+  }
+]</code></pre>
+
+<h3><code>GET /jobs/{id}</code></h3>
+<pre><code>{
+  "id": "a1b2c3",
+  "caller_id": "lenos-session-abc123",
+  "command": "go build ./...",
+  "status": "completed",
+  "exit_code": 0,
+  "stdout": "...(truncated at 64KB)...",
+  "stderr": "",
+  "started_at": "2026-05-25T10:30:00Z",
+  "completed_at": "2026-05-25T10:30:42Z"
+}</code></pre>
+
+<h3><code>DELETE /jobs/{id}</code></h3>
+<p>Kills a running background job. Returns <code>200</code> with the job's final state. Returns <code>404</code> if not found. Returns <code>409</code> if already completed.</p>
+
+<h2>Internal Implementation</h2>
+
+<h3>Job Registry (<code>internal/daemon/jobs.go</code>)</h3>
+<pre><code>// BackgroundJobManager manages background command executions.
+type BackgroundJobManager struct {
+    mu   sync.RWMutex
+    jobs map[string]*BackgroundJob
+}
+
+type BackgroundJob struct {
+    ID          string
+    CallerID    string
+    Command     string
+    Status      JobStatus // "running" | "completed" | "killed"
+    Stdout      *syncBuffer
+    Stderr      *syncBuffer
+    ExitCode    int
+    StartedAt   time.Time
+    CompletedAt time.Time
+    cancel      context.CancelFunc
+    done        chan struct{}
+}
+
+type syncBuffer struct {
+    mu  sync.Mutex
+    buf bytes.Buffer
+}</code></pre>
+
+<h3>Lifecycle</h3>
+<ol>
+  <li><strong>Start</strong> &mdash; <code>POST /run</code> with <code>auto_background_after &gt; 0</code> calls <code>jobManager.Start(ctx, callerID, command, execCfg, sbx)</code>. Returns immediately with a <code>*BackgroundJob</code>.</li>
+  <li><strong>Poll</strong> &mdash; Handler polls <code>job.IsDone()</code> every 100ms (like Crush) for up to <code>auto_background_after</code> seconds.</li>
+  <li><strong>Fast return</strong> &mdash; If done within threshold: remove from manager, return synchronous <code>RunResponse</code>.</li>
+  <li><strong>Background</strong> &mdash; If still running: return <code>{job_id, status: "background"}</code>. Job stays in manager.</li>
+  <li><strong>Completion</strong> &mdash; Background goroutine finishes, updates <code>Status</code>, <code>ExitCode</code>, <code>CompletedAt</code>.</li>
+  <li><strong>GC</strong> &mdash; Completed jobs retained for 5 minutes, then cleaned by <code>Cleanup()</code> (called on each new <code>Start</code>).</li>
+</ol>
+
+<h3>Limits</h3>
+<ul>
+  <li>Max 100 concurrent background jobs per daemon</li>
+  <li>Output truncated at 64KB per stream (consistent with existing <code>RunResponse</code>)</li>
+  <li>Completed jobs GC'd after 5 minutes</li>
+</ul>
+
+<h2>CLI Commands</h2>
+
+<h3><code>temenos job list</code></h3>
+<pre><code>$ temenos job list
+ID       COMMAND            STATUS     STARTED
+a1b2c3   go build ./...     running    10:30:00
+d4e5f6   npm install        completed  10:28:15</code></pre>
+<p>Defaults to <code>status=running</code>. Use <code>--status all</code> to show all jobs. Flags: <code>--status</code>, <code>--caller-id</code>.</p>
+
+<h3><code>temenos job log &lt;id&gt;</code></h3>
+<pre><code>$ temenos job log a1b2c3
+[stdout]
+# github.com/tta-lab/temenos
+cmd/temenos/main.go:12: undefined: foo
+
+[stderr]
+(exit code: 2)</code></pre>
+<p>Streams current output. If the job is still running, shows what's accumulated so far.</p>
+
+<h3><code>temenos job kill &lt;id&gt;</code></h3>
+<pre><code>$ temenos job kill a1b2c3
+killed job a1b2c3 (go build ./...)</code></pre>
+
+<h2>Client Library Changes</h2>
+
+<h3>Extended Types</h3>
+<pre><code>// client/client.go
+
+type RunRequest struct {
+    Command            string        `json:"command"`
+    Env                map[string]string `json:"env,omitempty"`
+    AllowedPaths       []AllowedPath `json:"allowed_paths,omitempty"`
+    Network            bool          `json:"network,omitempty"`
+    Timeout            int           `json:"timeout,omitempty"`
+    CallerID           string        `json:"caller_id,omitempty"`
+    AutoBackgroundAfter int          `json:"auto_background_after,omitempty"`
+}
+
+type RunResponse struct {
+    Stdout          string   `json:"stdout,omitempty"`
+    Stderr          string   `json:"stderr,omitempty"`
+    ExitCode        int      `json:"exit_code"`
+    StrippedEnvKeys []string `json:"stripped_env_keys,omitempty"`
+    JobID           string   `json:"job_id,omitempty"`
+    Status          string   `json:"status,omitempty"` // "background" when detached
+}
+
+type JobInfo struct {
+    ID          string `json:"id"`
+    CallerID    string `json:"caller_id"`
+    Command     string `json:"command"`
+    Status      string `json:"status"`
+    ExitCode    int    `json:"exit_code,omitempty"`
+    Stdout      string `json:"stdout,omitempty"`
+    Stderr      string `json:"stderr,omitempty"`
+    StartedAt   string `json:"started_at"`
+    CompletedAt string `json:"completed_at,omitempty"`
+}</code></pre>
+
+<h3>New Methods</h3>
+<pre><code>func (c *Client) ListJobs(callerID, status string) ([]JobInfo, error)
+func (c *Client) GetJob(id string) (*JobInfo, error)
+func (c *Client) KillJob(id string) error</code></pre>
+
+<h2>File Changes Summary</h2>
+<table>
+  <tr><th>File</th><th>Change</th></tr>
+  <tr><td><code>internal/daemon/jobs.go</code></td><td>New &mdash; <code>BackgroundJobManager</code>, <code>BackgroundJob</code>, <code>syncBuffer</code></td></tr>
+  <tr><td><code>internal/daemon/jobs_test.go</code></td><td>New &mdash; job lifecycle, GC, limits, concurrent access</td></tr>
+  <tr><td><code>internal/daemon/handler.go</code></td><td>Modify &mdash; extend <code>RunRequest</code>/<code>RunResponse</code>, add auto-background logic to <code>handleRun</code>, add <code>handleJob*</code> functions</td></tr>
+  <tr><td><code>internal/daemon/socket.go</code></td><td>Modify &mdash; add job routes to <code>newRouter</code>, add <code>newJobRouter</code> for job socket</td></tr>
+  <tr><td><code>internal/daemon/daemon.go</code></td><td>Modify &mdash; instantiate <code>BackgroundJobManager</code>, start job socket listener</td></tr>
+  <tr><td><code>client/client.go</code></td><td>Modify &mdash; extend request/response types, add <code>ListJobs</code>/<code>GetJob</code>/<code>KillJob</code></td></tr>
+  <tr><td><code>internal/cli/</code></td><td>New &mdash; <code>temenos job list/log/kill</code> subcommands</td></tr>
+</table>
+
+<h2>What This PR Does NOT Cover</h2>
+<ul>
+  <li><strong>Lenos integration</strong> &mdash; polling goroutine, result injection, system prompt updates. Separate PR.</li>
+  <li><strong>MCP background support</strong> &mdash; no consumers yet. Can be added later using the same job registry.</li>
+  <li><strong>Persistent job state</strong> &mdash; jobs are in-memory only. Daemon restart kills running background jobs. Acceptable for current scale.</li>
+</ul>
+
+</body>
+</html>

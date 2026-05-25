@@ -32,6 +32,12 @@ func DefaultSocketPath() (string, error) {
 	return filepath.Join(home, ".temenos", "daemon.sock"), nil
 }
 
+// DefaultJobSocketPath returns ~/.temenos/job.sock.
+// This socket exposes only job endpoints for safe agent access.
+func DefaultJobSocketPath(home string) string {
+	return filepath.Join(home, ".temenos", "job.sock")
+}
+
 // listenAddr resolves the daemon listen address.
 // Priority:
 //  1. TEMENOS_LISTEN_ADDR (e.g. ":8081" for TCP, "/path/to/sock" for unix)
@@ -76,8 +82,6 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 		MemoryLimitMB:    cgroupv2MemoryLimitMB,
 	})
 
-	// Phase 2: tracker will be passed to handleRun for /ps and /kill support.
-	// For now it's instantiated for the KillAll cleanup on shutdown.
 	tracker := NewProcessTracker()
 	defer tracker.KillAll()
 
@@ -100,16 +104,27 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 		cfg = &config.Config{MCPPort: 9783}
 	}
 
+	// Initialize background job manager.
+	jobMgr := NewBackgroundJobManager()
+
 	srv, serveErr, err := listenHTTP(addr, httpHandlers{
 		cfg: cfg,
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
-			return handleRun(ctx, cfg, sbx, req)
+			return handleRun(ctx, cfg, sbx, jobMgr, req)
 		},
 		health: func() HealthResponse { return handleHealth(version) },
 		store:  store,
+		jobMgr: jobMgr,
 	})
 	if err != nil {
 		return err
+	}
+
+	// Start job API socket (read-only job endpoints for agents).
+	jobSocketPath := DefaultJobSocketPath(home)
+	jobSrv, jobServeErr, err := listenJobHTTP(jobSocketPath, jobMgr)
+	if err != nil {
+		return fmt.Errorf("temenos: failed to start job socket: %w", err)
 	}
 
 	// Create MCP handler and start TCP listener on localhost.
@@ -123,20 +138,21 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 	slog.Info("temenos daemon started",
 		"admin", resolvedAddr,
 		"admin_network", network,
+		"job_socket", jobSocketPath,
 		"mcp", mcpAddr,
 	)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
-	return waitAndShutdown(sig, serveErr, mcpServeErr, srv, mcpSrv)
+	return waitAndShutdown(sig, serveErr, mcpServeErr, jobServeErr, srv, mcpSrv, jobSrv)
 }
 
-// waitAndShutdown blocks until a signal or server error, then shuts down both servers.
+// waitAndShutdown blocks until a signal or server error, then shuts down all servers.
 func waitAndShutdown(
 	sig <-chan os.Signal,
-	serveErr, mcpServeErr <-chan error,
-	srv, mcpSrv *http.Server,
+	serveErr, mcpServeErr, jobServeErr <-chan error,
+	srv, mcpSrv, jobSrv *http.Server,
 ) error {
 	select {
 	case <-sig:
@@ -149,10 +165,17 @@ func waitAndShutdown(
 		if err != nil {
 			return fmt.Errorf("temenos: MCP server failed: %w", err)
 		}
+	case err := <-jobServeErr:
+		if err != nil {
+			return fmt.Errorf("temenos: job socket failed: %w", err)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+	if err := jobSrv.Shutdown(ctx); err != nil {
+		slog.Warn("job socket shutdown error", "err", err)
+	}
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Warn("admin server shutdown error", "err", err)
 	}
