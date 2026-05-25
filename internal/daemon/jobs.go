@@ -239,9 +239,13 @@ func (j *BackgroundJob) toInfo(withOutput bool) JobInfo {
 	return info
 }
 
-// markAccessed sets LastAccessedAt if not already set. This starts the
-// GC retention countdown for completed jobs.
+// markAccessed sets LastAccessedAt for completed/killed jobs if not already set.
+// This starts the GC retention countdown. Running jobs are never marked —
+// GC already skips them, but this keeps the semantics clean.
 func (j *BackgroundJob) markAccessed() {
+	if j.Status == JobStatusRunning {
+		return
+	}
 	if j.LastAccessedAt.IsZero() {
 		j.LastAccessedAt = time.Now()
 	}
