@@ -36,6 +36,7 @@ type BackgroundJob struct {
 	stdout    *syncBuffer
 	stderr    *syncBuffer
 	cancel    context.CancelFunc
+	cleanup   func()
 	done      chan struct{}
 	startedAt time.Time
 
@@ -98,8 +99,13 @@ func newBackgroundJob(
 	callerID, command string,
 	sbx sandbox.Sandbox,
 	cfg *sandbox.ExecConfig,
+	onDone ...func(),
 ) *BackgroundJob {
 	jobCtx, cancel := context.WithCancel(ctx)
+	cleanup := func() {}
+	if len(onDone) > 0 && onDone[0] != nil {
+		cleanup = onDone[0]
+	}
 	job := &BackgroundJob{
 		callerID:  callerID,
 		command:   command,
@@ -108,11 +114,13 @@ func newBackgroundJob(
 		stderr:    &syncBuffer{},
 		startedAt: time.Now(),
 		cancel:    cancel,
+		cleanup:   cleanup,
 		done:      make(chan struct{}),
 	}
 
 	go func() {
 		defer close(job.done)
+		defer job.cleanup()
 		stdout, stderr, exitCode, err := sbx.Exec(jobCtx, command, cfg)
 		if err != nil {
 			_, _ = job.stderr.Write([]byte(err.Error() + "\n"))

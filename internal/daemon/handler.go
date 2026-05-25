@@ -160,7 +160,7 @@ func handleRun(
 	}
 	jobCtx, cancel := context.WithTimeout(context.Background(), runTimeout)
 
-	resp, err := handleRunAutoBackground(ctx, jobCtx, cfg, sbx, jobMgr, req)
+	resp, err := handleRunAutoBackground(ctx, jobCtx, cancel, cfg, sbx, jobMgr, req)
 	if err != nil || resp.JobID == "" {
 		cancel()
 	}
@@ -174,6 +174,7 @@ func handleRun(
 func handleRunAutoBackground(
 	requestCtx context.Context,
 	jobCtx context.Context,
+	jobDone context.CancelFunc,
 	cfg *config.Config,
 	sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager,
@@ -196,7 +197,7 @@ func handleRunAutoBackground(
 	execCfg := buildExecConfig(session.EnvMapToSlice(allowedEnv), mounts, req.AllowedPaths)
 
 	// Start process locally — not in registry yet.
-	job := newBackgroundJob(jobCtx, req.CallerID, req.Command, sbx, execCfg)
+	job := newBackgroundJob(jobCtx, req.CallerID, req.Command, sbx, execCfg, jobDone)
 
 	threshold := time.Duration(req.AutoBackgroundAfter) * time.Second
 	ticker := time.NewTicker(100 * time.Millisecond)

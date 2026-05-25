@@ -98,7 +98,7 @@
   <tr>
     <td>Job API</td>
     <td><code>~/.temenos/job.sock</code></td>
-    <td><code>0o666</code></td>
+    <td><code>0o600</code></td>
     <td><code>/jobs/*</code> only</td>
     <td>Agents via <code>temenos job</code> CLI</td>
   </tr>
@@ -177,7 +177,7 @@
 <pre><code>GET /jobs?status=running&amp;caller_id=lenos-session-abc123</code></pre>
 <table>
   <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
-  <tr><td><code>status</code></td><td>string</td><td><code>running</code>, <code>completed</code>, <code>all</code>. Default: <code>all</code>.</td></tr>
+  <tr><td><code>status</code></td><td>string</td><td><code>running</code>, <code>completed</code>, <code>killed</code>, <code>all</code>. Default: <code>all</code>.</td></tr>
   <tr><td><code>caller_id</code></td><td>string</td><td>Filter by caller. Optional.</td></tr>
 </table>
 
@@ -260,7 +260,7 @@ type syncBuffer struct {
 ID       COMMAND            STATUS     STARTED
 a1b2c3   go build ./...     running    10:30:00
 d4e5f6   npm install        completed  10:28:15</code></pre>
-<p>Defaults to <code>status=running</code>. Flags: <code>--all</code>, <code>--caller-id</code>.</p>
+<p>Defaults to <code>status=running</code>. Use <code>--status all</code> to show all jobs. Flags: <code>--status</code>, <code>--caller-id</code>.</p>
 
 <h3><code>temenos job log &lt;id&gt;</code></h3>
 <pre><code>$ temenos job log a1b2c3
