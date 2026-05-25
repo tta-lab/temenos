@@ -141,10 +141,20 @@ func (m *BackgroundJobManager) Start(
 }
 
 // Get returns a job by ID, or nil if not found.
+// Uses write lock because callers may trigger markAccessed via toInfo.
 func (m *BackgroundJobManager) Get(id string) *BackgroundJob {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.jobs[id]
+}
+
+// Remove deletes a job from the registry. Used for fast-completing jobs
+// that finished within the auto-background threshold and should not count
+// toward the concurrent job limit.
+func (m *BackgroundJobManager) Remove(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.jobs, id)
 }
 
 // List returns jobs matching the filter. Empty status or callerID means "all".

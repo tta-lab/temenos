@@ -194,7 +194,7 @@ func handleRunAutoBackground(
 		select {
 		case <-ticker.C:
 			if job.IsDone() {
-				jobMgr.Kill(job.ID) // no-op if done, but triggers cleanup
+				jobMgr.Remove(job.ID)
 				return &RunResponse{
 					Stdout:          truncate(job.Stdout.String()),
 					Stderr:          truncate(job.Stderr.String()),
