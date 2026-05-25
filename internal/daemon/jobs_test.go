@@ -2,6 +2,9 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -76,6 +79,26 @@ func TestBackgroundJobManager_ListFilter(t *testing.T) {
 	byCaller := mgr.List("", "caller-a")
 	assert.Len(t, byCaller, 1)
 	assert.Equal(t, "caller-a", byCaller[0].CallerID)
+}
+
+func TestHandleHTTPJobList_StatusAllReturnsAllJobs(t *testing.T) {
+	mgr := NewBackgroundJobManager()
+	slowSbx := &mockSandbox{stdout: "running", delay: 10 * time.Second}
+	fastSbx := &mockSandbox{stdout: "done"}
+
+	startAndRegister(t, mgr, slowSbx, "caller-a", "cmd1")
+	completed := startAndRegister(t, mgr, fastSbx, "caller-b", "cmd2")
+	completed.Wait()
+
+	req := httptest.NewRequest(http.MethodGet, "/jobs?status=all", nil)
+	rec := httptest.NewRecorder()
+
+	handleHTTPJobList(mgr).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var jobs []JobInfo
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&jobs))
+	assert.Len(t, jobs, 2)
 }
 
 func TestBackgroundJobManager_Kill(t *testing.T) {

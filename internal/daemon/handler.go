@@ -138,7 +138,10 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 	return cfg
 }
 
-const defaultAutoBackgroundAfter = 15 // seconds
+const (
+	defaultAutoBackgroundAfter = 15 // seconds
+	defaultRunTimeout          = 20 * time.Minute
+)
 
 func handleRun(
 	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox,
@@ -150,7 +153,18 @@ func handleRun(
 		autoBackground = defaultAutoBackgroundAfter
 	}
 	req.AutoBackgroundAfter = autoBackground
-	return handleRunAutoBackground(ctx, cfg, sbx, jobMgr, req)
+
+	runTimeout := defaultRunTimeout
+	if req.Timeout > 0 {
+		runTimeout = time.Duration(req.Timeout) * time.Second
+	}
+	jobCtx, cancel := context.WithTimeout(context.Background(), runTimeout)
+
+	resp, err := handleRunAutoBackground(ctx, jobCtx, cfg, sbx, jobMgr, req)
+	if err != nil || resp.JobID == "" {
+		cancel()
+	}
+	return resp, err
 }
 
 // handleRunAutoBackground starts the command as a background job and polls
@@ -158,7 +172,8 @@ func handleRun(
 // it returns a normal RunResponse. Otherwise it returns a job_id with
 // status "background".
 func handleRunAutoBackground(
-	ctx context.Context,
+	requestCtx context.Context,
+	jobCtx context.Context,
 	cfg *config.Config,
 	sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager,
@@ -181,7 +196,7 @@ func handleRunAutoBackground(
 	execCfg := buildExecConfig(session.EnvMapToSlice(allowedEnv), mounts, req.AllowedPaths)
 
 	// Start process locally — not in registry yet.
-	job := newBackgroundJob(ctx, req.CallerID, req.Command, sbx, execCfg)
+	job := newBackgroundJob(jobCtx, req.CallerID, req.Command, sbx, execCfg)
 
 	threshold := time.Duration(req.AutoBackgroundAfter) * time.Second
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -212,9 +227,9 @@ func handleRunAutoBackground(
 				JobID:  job.id,
 				Status: "background",
 			}, nil
-		case <-ctx.Done():
+		case <-requestCtx.Done():
 			job.cancel()
-			return nil, ctx.Err()
+			return nil, requestCtx.Err()
 		}
 	}
 }
@@ -333,13 +348,28 @@ func handleHTTPSessionList(store *session.Store) http.HandlerFunc {
 // handleHTTPJobList handles GET /jobs.
 func handleHTTPJobList(jobMgr *BackgroundJobManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status := JobStatus(r.URL.Query().Get("status"))
+		status, err := normalizeJobStatus(r.URL.Query().Get("status"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 		callerID := r.URL.Query().Get("caller_id")
 		jobs := jobMgr.List(status, callerID)
 		if jobs == nil {
 			jobs = []JobInfo{}
 		}
 		writeJSON(w, http.StatusOK, jobs)
+	}
+}
+
+func normalizeJobStatus(status string) (JobStatus, error) {
+	switch status {
+	case "", "all":
+		return "", nil
+	case string(JobStatusRunning), string(JobStatusCompleted), string(JobStatusKilled):
+		return JobStatus(status), nil
+	default:
+		return "", fmt.Errorf("invalid job status %q", status)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,23 @@ func (c *captureSandbox) Exec(_ context.Context, _ string, cfg *sandbox.ExecConf
 }
 
 func (c *captureSandbox) IsAvailable() bool { return true }
+
+type deadlineSandbox struct {
+	deadline chan deadlineObservation
+}
+
+type deadlineObservation struct {
+	deadline time.Time
+	ok       bool
+}
+
+func (d *deadlineSandbox) Exec(ctx context.Context, _ string, _ *sandbox.ExecConfig) (string, string, int, error) {
+	deadline, ok := ctx.Deadline()
+	d.deadline <- deadlineObservation{deadline: deadline, ok: ok}
+	return "", "", 0, nil
+}
+
+func (d *deadlineSandbox) IsAvailable() bool { return true }
 
 func TestHandleRun_SetsWorkingDir(t *testing.T) {
 	sbx := &captureSandbox{}
@@ -43,6 +61,59 @@ func TestHandleRun_NoAllowedPaths_FallsBackToTempDir(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	assert.Equal(t, os.TempDir(), sbx.lastCfg.WorkingDir)
+}
+
+func TestHandleRun_DefaultsRunTimeoutToTwentyMinutes(t *testing.T) {
+	sbx := &deadlineSandbox{deadline: make(chan deadlineObservation, 1)}
+	start := time.Now()
+
+	_, err := handleRun(t.Context(), &config.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
+		Command: "echo hi",
+	})
+	require.NoError(t, err)
+
+	observed := <-sbx.deadline
+	require.True(t, observed.ok, "sandbox context should have a deadline")
+	assert.WithinDuration(t, start.Add(20*time.Minute), observed.deadline, time.Second)
+}
+
+func TestHandleRun_UsesRequestTimeout(t *testing.T) {
+	sbx := &deadlineSandbox{deadline: make(chan deadlineObservation, 1)}
+	start := time.Now()
+
+	_, err := handleRun(t.Context(), &config.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
+		Command: "echo hi",
+		Timeout: 30,
+	})
+	require.NoError(t, err)
+
+	observed := <-sbx.deadline
+	require.True(t, observed.ok, "sandbox context should have a deadline")
+	assert.WithinDuration(t, start.Add(30*time.Second), observed.deadline, time.Second)
+}
+
+func TestHandleRun_BackgroundJobOutlivesRequestContext(t *testing.T) {
+	mgr := NewBackgroundJobManager()
+	sbx := &mockSandbox{delay: 10 * time.Second}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	resp, err := handleRun(ctx, &config.Config{}, sbx, mgr, RunRequest{
+		Command:             "sleep 10",
+		AutoBackgroundAfter: 1,
+		Timeout:             30,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "background", resp.Status)
+	require.NotEmpty(t, resp.JobID)
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	job := mgr.Get(resp.JobID)
+	require.NotNil(t, job)
+	assert.False(t, job.IsDone())
+	job.cancel()
+	job.Wait()
 }
 
 func TestBuildMounts_MetadataOnlyPassedThrough(t *testing.T) {
