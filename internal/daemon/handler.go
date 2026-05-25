@@ -28,6 +28,12 @@ type RunRequest struct {
 	// Phase 2: when false, buildPolicy skips seatbelt_network.sbpl.
 	Network *bool `json:"network,omitempty"`
 	Timeout int   `json:"timeout,omitempty"` // seconds, 0 = default
+	// CallerID is an opaque identifier assigned by the caller (e.g. Lenos session ID).
+	// Used to filter jobs by caller. Not interpreted by Temenos.
+	CallerID string `json:"caller_id,omitempty"`
+	// AutoBackgroundAfter is the number of seconds to wait before moving the
+	// command to a background job. 0 means synchronous execution (default).
+	AutoBackgroundAfter int `json:"auto_background_after,omitempty"`
 }
 
 // AllowedPath specifies a filesystem mount for the sandbox.
@@ -43,6 +49,10 @@ type RunResponse struct {
 	Stderr          string   `json:"stderr"`
 	ExitCode        int      `json:"exit_code"`
 	StrippedEnvKeys []string `json:"stripped_env_keys,omitempty"`
+	// JobID is set when a command was moved to background.
+	JobID string `json:"job_id,omitempty"`
+	// Status is "background" when the command is still running as a job.
+	Status string `json:"status,omitempty"`
 }
 
 // HealthResponse is the GET /health response.
@@ -65,18 +75,41 @@ func validatePath(p string) error {
 	return nil
 }
 
+// jobSocketMountDir returns the parent directory of the job socket as a
+// read-write mount, so sandboxed agents can connect to temenos job list/log/kill.
+func jobSocketMountDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".temenos")
+}
+
+// jobSocketMount returns the job socket directory as a read-write mount,
+// or a zero-value mount if the home directory cannot be determined.
+func jobSocketMount() sandbox.Mount {
+	dir := jobSocketMountDir()
+	if dir == "" {
+		return sandbox.Mount{}
+	}
+	return sandbox.Mount{Source: dir, Target: dir, ReadOnly: false}
+}
+
 // buildMounts prepends baseline mounts, converts AllowedPath slice into sandbox.Mount
 // slice (with validation), then appends ancestor directories of all non-MetadataOnly
 // mounts as MetadataOnly mounts. This lets sandboxed processes stat parent directories
 // (e.g. git rev-parse --path-format=absolute walks up the tree) without granting broader
 // access. Ancestors are appended AFTER explicit mounts to preserve mounts[0].Source as
 // the working directory in buildExecConfig. Root (/) is excluded.
-func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount, error) {
+func buildMounts(baseline []sandbox.Mount, paths []AllowedPath, extraMounts ...sandbox.Mount) ([]sandbox.Mount, error) {
 	// Start with baseline mounts (from config).
 	mounts := make([]sandbox.Mount, len(baseline))
 	copy(mounts, baseline)
 
-	// Append mounts from the request's AllowedPaths.
+	// Append any extra mounts (e.g. job socket directory).
+	mounts = append(mounts, extraMounts...)
+
+	// Append mounts from the request AllowedPaths.
 	for _, ap := range paths {
 		if err := validatePath(ap.Path); err != nil {
 			return nil, fmt.Errorf("%w: %w", errHTTPValidation, err)
@@ -106,14 +139,21 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 	return cfg
 }
 
-func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req RunRequest) (*RunResponse, error) {
+func handleRun(
+	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox,
+	jobMgr *BackgroundJobManager, req RunRequest,
+) (*RunResponse, error) {
+	if req.AutoBackgroundAfter > 0 {
+		return handleRunAutoBackground(ctx, cfg, sbx, jobMgr, req)
+	}
+
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
 		defer cancel()
 	}
 
-	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths, jobSocketMount())
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +181,67 @@ func handleRun(ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox, req
 		ExitCode:        exitCode,
 		StrippedEnvKeys: stripped,
 	}, nil
+}
+
+// handleRunAutoBackground starts the command as a background job and polls
+// for up to AutoBackgroundAfter seconds. If the command finishes in time,
+// it returns a normal RunResponse. Otherwise it returns a job_id with
+// status "background".
+func handleRunAutoBackground(
+	ctx context.Context,
+	cfg *config.Config,
+	sbx sandbox.Sandbox,
+	jobMgr *BackgroundJobManager,
+	req RunRequest,
+) (*RunResponse, error) {
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths, jobSocketMount())
+	if err != nil {
+		return nil, err
+	}
+
+	if err := session.ValidateEnv(req.Env); err != nil {
+		return nil, err
+	}
+
+	allowedEnv, stripped := cfg.FilterEnv(req.Env)
+	if len(stripped) > 0 {
+		slog.Debug("temenos: stripped disallowed env keys from RunRequest",
+			"keys", stripped)
+	}
+	execCfg := buildExecConfig(session.EnvMapToSlice(allowedEnv), mounts, req.AllowedPaths)
+
+	job, err := jobMgr.Start(ctx, req.CallerID, req.Command, sbx, execCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	threshold := time.Duration(req.AutoBackgroundAfter) * time.Second
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(threshold)
+
+	for {
+		select {
+		case <-ticker.C:
+			if job.IsDone() {
+				jobMgr.Kill(job.ID) // no-op if done, but triggers cleanup
+				return &RunResponse{
+					Stdout:          truncate(job.Stdout.String(), maxOutputBytes),
+					Stderr:          truncate(job.Stderr.String(), maxOutputBytes),
+					ExitCode:        job.ExitCode,
+					StrippedEnvKeys: stripped,
+				}, nil
+			}
+		case <-timeout:
+			return &RunResponse{
+				JobID:  job.ID,
+				Status: "background",
+			}, nil
+		case <-ctx.Done():
+			job.cancel()
+			return nil, ctx.Err()
+		}
+	}
 }
 
 func handleHealth(version string) HealthResponse {
@@ -251,5 +352,49 @@ func handleHTTPSessionList(store *session.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessions := handleSessionList(store)
 		writeJSON(w, http.StatusOK, sessions)
+	}
+}
+
+// handleHTTPJobList handles GET /jobs.
+func handleHTTPJobList(jobMgr *BackgroundJobManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := JobStatus(r.URL.Query().Get("status"))
+		callerID := r.URL.Query().Get("caller_id")
+		jobs := jobMgr.List(status, callerID)
+		if jobs == nil {
+			jobs = []JobInfo{}
+		}
+		writeJSON(w, http.StatusOK, jobs)
+	}
+}
+
+// handleHTTPJobGet handles GET /jobs/{id}.
+func handleHTTPJobGet(jobMgr *BackgroundJobManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		job := jobMgr.Get(id)
+		if job == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, job.toInfo(true))
+	}
+}
+
+// handleHTTPJobKill handles DELETE /jobs/{id}.
+func handleHTTPJobKill(jobMgr *BackgroundJobManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		job := jobMgr.Get(id)
+		if job == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+			return
+		}
+		if job.IsDone() {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "job already completed"})
+			return
+		}
+		jobMgr.Kill(id)
+		writeJSON(w, http.StatusOK, job.toInfo(true))
 	}
 }
