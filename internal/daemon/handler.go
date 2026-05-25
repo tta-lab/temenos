@@ -186,7 +186,8 @@ func handleRunAutoBackground(
 	threshold := time.Duration(req.AutoBackgroundAfter) * time.Second
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	timeout := time.After(threshold)
+	timeout := time.NewTimer(threshold)
+	defer timeout.Stop()
 
 	for {
 		select {
@@ -201,7 +202,7 @@ func handleRunAutoBackground(
 					StrippedEnvKeys: stripped,
 				}, nil
 			}
-		case <-timeout:
+		case <-timeout.C:
 			// Threshold exceeded — now register in the job registry.
 			if err := jobMgr.Add(job); err != nil {
 				job.cancel()

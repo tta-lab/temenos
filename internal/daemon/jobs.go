@@ -201,8 +201,8 @@ func (m *BackgroundJobManager) Add(job *BackgroundJob) error {
 
 // Get returns a job by ID, or nil if not found.
 func (m *BackgroundJobManager) Get(id string) *BackgroundJob {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.jobs[id]
 }
 
