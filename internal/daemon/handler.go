@@ -31,8 +31,7 @@ type RunRequest struct {
 	// CallerID is an opaque identifier assigned by the caller (e.g. Lenos session ID).
 	// Used to filter jobs by caller. Not interpreted by Temenos.
 	CallerID string `json:"caller_id,omitempty"`
-	// AutoBackgroundAfter is the number of seconds to wait before moving the
-	// command to a background job. 0 means synchronous execution (default).
+	// AutoBackgroundAfter is seconds to wait before moving to background. Default: 15.
 	AutoBackgroundAfter int `json:"auto_background_after,omitempty"`
 }
 
@@ -139,48 +138,19 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 	return cfg
 }
 
+const defaultAutoBackgroundAfter = 15 // seconds
+
 func handleRun(
 	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager, req RunRequest,
 ) (*RunResponse, error) {
-	if req.AutoBackgroundAfter > 0 {
-		return handleRunAutoBackground(ctx, cfg, sbx, jobMgr, req)
+	// Default to 15s auto-background unless explicitly set.
+	autoBackground := req.AutoBackgroundAfter
+	if autoBackground == 0 {
+		autoBackground = defaultAutoBackgroundAfter
 	}
-
-	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.Timeout)*time.Second)
-		defer cancel()
-	}
-
-	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths, jobSocketMount())
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate env keys before filtering (consistent with session env validation)
-	if err := session.ValidateEnv(req.Env); err != nil {
-		return nil, err
-	}
-
-	allowedEnv, stripped := cfg.FilterEnv(req.Env)
-	if len(stripped) > 0 {
-		slog.Debug("temenos: stripped disallowed env keys from RunRequest",
-			"keys", stripped)
-	}
-	execCfg := buildExecConfig(session.EnvMapToSlice(allowedEnv), mounts, req.AllowedPaths)
-
-	stdout, stderr, exitCode, err := sbx.Exec(ctx, req.Command, execCfg)
-	if err != nil {
-		return nil, err
-	}
-
-	return &RunResponse{
-		Stdout:          stdout,
-		Stderr:          stderr,
-		ExitCode:        exitCode,
-		StrippedEnvKeys: stripped,
-	}, nil
+	req.AutoBackgroundAfter = autoBackground
+	return handleRunAutoBackground(ctx, cfg, sbx, jobMgr, req)
 }
 
 // handleRunAutoBackground starts the command as a background job and polls
