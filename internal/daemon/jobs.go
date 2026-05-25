@@ -233,4 +233,3 @@ func truncate(s string) string {
 	}
 	return s[:maxOutputBytes] + "\n...(truncated)"
 }
-
