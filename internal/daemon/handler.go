@@ -180,10 +180,8 @@ func handleRunAutoBackground(
 	}
 	execCfg := buildExecConfig(session.EnvMapToSlice(allowedEnv), mounts, req.AllowedPaths)
 
-	job, err := jobMgr.Start(ctx, req.CallerID, req.Command, sbx, execCfg)
-	if err != nil {
-		return nil, err
-	}
+	// Start process locally — not in registry yet.
+	job := newBackgroundJob(ctx, req.CallerID, req.Command, sbx, execCfg)
 
 	threshold := time.Duration(req.AutoBackgroundAfter) * time.Second
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -194,7 +192,7 @@ func handleRunAutoBackground(
 		select {
 		case <-ticker.C:
 			if job.IsDone() {
-				jobMgr.Remove(job.ID)
+				// Finished within threshold — never touched registry.
 				return &RunResponse{
 					Stdout:          truncate(job.Stdout.String()),
 					Stderr:          truncate(job.Stderr.String()),
@@ -203,6 +201,11 @@ func handleRunAutoBackground(
 				}, nil
 			}
 		case <-timeout:
+			// Threshold exceeded — now register in the job registry.
+			if err := jobMgr.Add(job); err != nil {
+				job.cancel()
+				return nil, err
+			}
 			return &RunResponse{
 				JobID:  job.ID,
 				Status: "background",

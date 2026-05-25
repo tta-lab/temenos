@@ -86,28 +86,16 @@ func NewBackgroundJobManager() *BackgroundJobManager {
 	}
 }
 
-// Start launches a command in the background. Returns the job immediately.
-func (m *BackgroundJobManager) Start(
+// newBackgroundJob creates and starts a background job without registering it.
+// The caller is responsible for calling Add() if the job needs to be tracked.
+func newBackgroundJob(
 	ctx context.Context,
 	callerID, command string,
 	sbx sandbox.Sandbox,
 	cfg *sandbox.ExecConfig,
-) (*BackgroundJob, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.gcLocked()
-
-	if len(m.jobs) >= maxBackgroundJobs {
-		return nil, fmt.Errorf("maximum number of background jobs (%d) reached", maxBackgroundJobs)
-	}
-
-	m.seq++
-	id := fmt.Sprintf("%06x", m.seq)
-
+) *BackgroundJob {
 	jobCtx, cancel := context.WithCancel(ctx)
 	job := &BackgroundJob{
-		ID:        id,
 		CallerID:  callerID,
 		Command:   command,
 		Status:    JobStatusRunning,
@@ -117,8 +105,6 @@ func (m *BackgroundJobManager) Start(
 		cancel:    cancel,
 		done:      make(chan struct{}),
 	}
-
-	m.jobs[id] = job
 
 	go func() {
 		defer close(job.done)
@@ -137,7 +123,25 @@ func (m *BackgroundJobManager) Start(
 		job.CompletedAt = time.Now()
 	}()
 
-	return job, nil
+	return job
+}
+
+// Add registers an already-running job in the registry.
+// Returns an error if the max concurrent limit is reached.
+func (m *BackgroundJobManager) Add(job *BackgroundJob) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.gcLocked()
+
+	if len(m.jobs) >= maxBackgroundJobs {
+		return fmt.Errorf("maximum number of background jobs (%d) reached", maxBackgroundJobs)
+	}
+
+	m.seq++
+	job.ID = fmt.Sprintf("%06x", m.seq)
+	m.jobs[job.ID] = job
+	return nil
 }
 
 // Get returns a job by ID, or nil if not found.

@@ -31,12 +31,19 @@ func (m *mockSandbox) Exec(ctx context.Context, _ string, _ *sandbox.ExecConfig)
 
 func (m *mockSandbox) IsAvailable() bool { return true }
 
-func TestBackgroundJobManager_StartAndComplete(t *testing.T) {
+// startAndRegister is a test helper that creates a job and registers it.
+func startAndRegister(t *testing.T, mgr *BackgroundJobManager, sbx *mockSandbox, callerID, command string) *BackgroundJob {
+	t.Helper()
+	job := newBackgroundJob(context.Background(), callerID, command, sbx, &sandbox.ExecConfig{})
+	require.NoError(t, mgr.Add(job))
+	return job
+}
+
+func TestBackgroundJobManager_AddAndComplete(t *testing.T) {
 	mgr := NewBackgroundJobManager()
 	sbx := &mockSandbox{stdout: "hello", exitCode: 0}
 
-	job, err := mgr.Start(context.Background(), "test-caller", "echo hello", sbx, &sandbox.ExecConfig{})
-	require.NoError(t, err)
+	job := startAndRegister(t, mgr, sbx, "test-caller", "echo hello")
 	assert.NotEmpty(t, job.ID)
 	assert.Equal(t, JobStatusRunning, job.Status)
 
@@ -52,10 +59,8 @@ func TestBackgroundJobManager_ListFilter(t *testing.T) {
 	mgr := NewBackgroundJobManager()
 	sbx := &mockSandbox{stdout: "done"}
 
-	_, err := mgr.Start(context.Background(), "caller-a", "cmd1", sbx, &sandbox.ExecConfig{})
-	require.NoError(t, err)
-	job2, err := mgr.Start(context.Background(), "caller-b", "cmd2", sbx, &sandbox.ExecConfig{})
-	require.NoError(t, err)
+	startAndRegister(t, mgr, sbx, "caller-a", "cmd1")
+	job2 := startAndRegister(t, mgr, sbx, "caller-b", "cmd2")
 
 	job2.Wait()
 
@@ -74,8 +79,7 @@ func TestBackgroundJobManager_Kill(t *testing.T) {
 	mgr := NewBackgroundJobManager()
 	sbx := &mockSandbox{delay: 10 * time.Second}
 
-	job, err := mgr.Start(context.Background(), "", "sleep 999", sbx, &sandbox.ExecConfig{})
-	require.NoError(t, err)
+	job := startAndRegister(t, mgr, sbx, "", "sleep 999")
 
 	ok := mgr.Kill(job.ID)
 	assert.True(t, ok)
@@ -91,7 +95,7 @@ func TestBackgroundJobManager_Get(t *testing.T) {
 	mgr := NewBackgroundJobManager()
 	sbx := &mockSandbox{stdout: "x"}
 
-	job, _ := mgr.Start(context.Background(), "", "echo x", sbx, &sandbox.ExecConfig{})
+	job := startAndRegister(t, mgr, sbx, "", "echo x")
 	job.Wait()
 
 	got := mgr.Get(job.ID)
@@ -101,16 +105,29 @@ func TestBackgroundJobManager_Get(t *testing.T) {
 	assert.Nil(t, mgr.Get("nonexistent"))
 }
 
+func TestBackgroundJobManager_Remove(t *testing.T) {
+	mgr := NewBackgroundJobManager()
+	sbx := &mockSandbox{stdout: "x"}
+
+	job := startAndRegister(t, mgr, sbx, "", "echo x")
+	job.Wait()
+
+	assert.Len(t, mgr.List("", ""), 1)
+	mgr.Remove(job.ID)
+	assert.Len(t, mgr.List("", ""), 0)
+	assert.Nil(t, mgr.Get(job.ID))
+}
+
 func TestBackgroundJobManager_MaxJobs(t *testing.T) {
 	mgr := NewBackgroundJobManager()
 	sbx := &mockSandbox{delay: 10 * time.Second}
 
 	for i := 0; i < maxBackgroundJobs; i++ {
-		_, err := mgr.Start(context.Background(), "", "sleep", sbx, &sandbox.ExecConfig{})
-		require.NoError(t, err)
+		startAndRegister(t, mgr, sbx, "", "sleep")
 	}
 
-	_, err := mgr.Start(context.Background(), "", "one more", sbx, &sandbox.ExecConfig{})
+	job := newBackgroundJob(context.Background(), "", "one more", sbx, &sandbox.ExecConfig{})
+	err := mgr.Add(job)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum")
 }
@@ -119,7 +136,7 @@ func TestBackgroundJobManager_GetOutputWhileRunning(t *testing.T) {
 	mgr := NewBackgroundJobManager()
 	sbx := &mockSandbox{delay: 500 * time.Millisecond, stdout: "partial"}
 
-	job, _ := mgr.Start(context.Background(), "", "slow", sbx, &sandbox.ExecConfig{})
+	job := startAndRegister(t, mgr, sbx, "", "slow")
 
 	// Should not be done yet.
 	assert.False(t, job.IsDone())
