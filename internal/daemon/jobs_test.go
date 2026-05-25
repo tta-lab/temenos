@@ -32,7 +32,9 @@ func (m *mockSandbox) Exec(ctx context.Context, _ string, _ *sandbox.ExecConfig)
 func (m *mockSandbox) IsAvailable() bool { return true }
 
 // startAndRegister is a test helper that creates a job and registers it.
-func startAndRegister(t *testing.T, mgr *BackgroundJobManager, sbx *mockSandbox, callerID, command string) *BackgroundJob {
+func startAndRegister(
+	t *testing.T, mgr *BackgroundJobManager, sbx *mockSandbox, callerID, command string,
+) *BackgroundJob {
 	t.Helper()
 	job := newBackgroundJob(context.Background(), callerID, command, sbx, &sandbox.ExecConfig{})
 	require.NoError(t, mgr.Add(job))
