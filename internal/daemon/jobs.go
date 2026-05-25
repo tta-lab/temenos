@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	maxBackgroundJobs     = 50
+	maxBackgroundJobs     = 100
 	completedJobRetention = 5 * time.Minute
 	maxOutputBytes        = 64 * 1024 // 64KB, consistent with sandbox truncation
 )
@@ -27,17 +27,18 @@ const (
 
 // BackgroundJob tracks a detached command execution.
 type BackgroundJob struct {
-	ID          string
-	CallerID    string
-	Command     string
-	Status      JobStatus
-	Stdout      *syncBuffer
-	Stderr      *syncBuffer
-	ExitCode    int
-	StartedAt   time.Time
-	CompletedAt time.Time
-	cancel      context.CancelFunc
-	done        chan struct{}
+	ID             string
+	CallerID       string
+	Command        string
+	Status         JobStatus
+	Stdout         *syncBuffer
+	Stderr         *syncBuffer
+	ExitCode       int
+	StartedAt      time.Time
+	CompletedAt    time.Time
+	LastAccessedAt time.Time // set on first output read; GC countdown starts from here
+	cancel         context.CancelFunc
+	done           chan struct{}
 }
 
 // JobInfo is the serializable view of a BackgroundJob.
@@ -182,11 +183,20 @@ func (m *BackgroundJobManager) Kill(id string) bool {
 	}
 }
 
-// gcLocked removes completed jobs older than the retention period.
+// gcLocked removes completed jobs that have been accessed and are older than
+// the retention period. Jobs that have never been accessed are kept until
+// they are read or the limit is reached.
 func (m *BackgroundJobManager) gcLocked() {
-	cutoff := time.Now().Add(-completedJobRetention)
+	now := time.Now()
 	for id, j := range m.jobs {
-		if j.Status != JobStatusRunning && j.CompletedAt.Before(cutoff) {
+		if j.Status == JobStatusRunning {
+			continue
+		}
+		// Only GC jobs that have been accessed (output read at least once).
+		if j.LastAccessedAt.IsZero() {
+			continue
+		}
+		if now.Sub(j.LastAccessedAt) >= completedJobRetention {
 			delete(m.jobs, id)
 		}
 	}
@@ -208,6 +218,7 @@ func (j *BackgroundJob) Wait() {
 }
 
 // toInfo converts a BackgroundJob to a serializable JobInfo snapshot.
+// When withOutput is true, marks the job as accessed (starts GC countdown).
 func (j *BackgroundJob) toInfo(withOutput bool) JobInfo {
 	info := JobInfo{
 		ID:        j.ID,
@@ -223,8 +234,17 @@ func (j *BackgroundJob) toInfo(withOutput bool) JobInfo {
 	if withOutput {
 		info.Stdout = truncate(j.Stdout.String())
 		info.Stderr = truncate(j.Stderr.String())
+		j.markAccessed()
 	}
 	return info
+}
+
+// markAccessed sets LastAccessedAt if not already set. This starts the
+// GC retention countdown for completed jobs.
+func (j *BackgroundJob) markAccessed() {
+	if j.LastAccessedAt.IsZero() {
+		j.LastAccessedAt = time.Now()
+	}
 }
 
 func truncate(s string) string {
