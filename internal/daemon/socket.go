@@ -32,7 +32,6 @@ type httpHandlers struct {
 	jobMgr *BackgroundJobManager
 }
 
-
 func newRouter(h httpHandlers) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
@@ -62,7 +61,6 @@ func newJobRouter(jobMgr *BackgroundJobManager) *chi.Mux {
 	r.Delete("/jobs/{id}", handleHTTPJobKill(jobMgr))
 	return r
 }
-
 
 func handleHTTPHealth(h httpHandlers) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

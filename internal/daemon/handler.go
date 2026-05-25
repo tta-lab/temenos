@@ -226,8 +226,8 @@ func handleRunAutoBackground(
 			if job.IsDone() {
 				jobMgr.Kill(job.ID) // no-op if done, but triggers cleanup
 				return &RunResponse{
-					Stdout:          truncate(job.Stdout.String(), maxOutputBytes),
-					Stderr:          truncate(job.Stderr.String(), maxOutputBytes),
+					Stdout:          truncate(job.Stdout.String()),
+					Stderr:          truncate(job.Stderr.String()),
 					ExitCode:        job.ExitCode,
 					StrippedEnvKeys: stripped,
 				}, nil

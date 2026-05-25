@@ -221,15 +221,16 @@ func (j *BackgroundJob) toInfo(withOutput bool) JobInfo {
 		info.CompletedAt = j.CompletedAt.Format(time.RFC3339)
 	}
 	if withOutput {
-		info.Stdout = truncate(j.Stdout.String(), maxOutputBytes)
-		info.Stderr = truncate(j.Stderr.String(), maxOutputBytes)
+		info.Stdout = truncate(j.Stdout.String())
+		info.Stderr = truncate(j.Stderr.String())
 	}
 	return info
 }
 
-func truncate(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
+func truncate(s string) string {
+	if len(s) <= maxOutputBytes {
 		return s
 	}
-	return s[:maxBytes] + "\n...(truncated)"
+	return s[:maxOutputBytes] + "\n...(truncated)"
 }
+
