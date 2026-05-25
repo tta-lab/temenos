@@ -46,23 +46,24 @@ func TestBackgroundJobManager_AddAndComplete(t *testing.T) {
 	sbx := &mockSandbox{stdout: "hello", exitCode: 0}
 
 	job := startAndRegister(t, mgr, sbx, "test-caller", "echo hello")
-	assert.NotEmpty(t, job.ID)
-	assert.Equal(t, JobStatusRunning, job.Status)
+	assert.NotEmpty(t, job.snapshot(false).ID)
 
 	job.Wait()
 
-	assert.Equal(t, JobStatusCompleted, job.Status)
-	assert.Equal(t, 0, job.ExitCode)
-	assert.Equal(t, "hello", job.Stdout.String())
-	assert.False(t, job.CompletedAt.IsZero())
+	info := job.snapshot(true)
+	assert.Equal(t, "completed", info.Status)
+	assert.Equal(t, 0, info.ExitCode)
+	assert.Equal(t, "hello", info.Stdout)
+	assert.NotEmpty(t, info.CompletedAt)
 }
 
 func TestBackgroundJobManager_ListFilter(t *testing.T) {
 	mgr := NewBackgroundJobManager()
-	sbx := &mockSandbox{stdout: "done"}
+	slowSbx := &mockSandbox{stdout: "done", delay: 10 * time.Second}
+	fastSbx := &mockSandbox{stdout: "done"}
 
-	startAndRegister(t, mgr, sbx, "caller-a", "cmd1")
-	job2 := startAndRegister(t, mgr, sbx, "caller-b", "cmd2")
+	startAndRegister(t, mgr, slowSbx, "caller-a", "cmd1")
+	job2 := startAndRegister(t, mgr, fastSbx, "caller-b", "cmd2")
 
 	job2.Wait()
 
@@ -83,14 +84,16 @@ func TestBackgroundJobManager_Kill(t *testing.T) {
 
 	job := startAndRegister(t, mgr, sbx, "", "sleep 999")
 
-	ok := mgr.Kill(job.ID)
+	ok := mgr.Kill(job.id)
 	assert.True(t, ok)
 
 	job.Wait()
-	assert.Equal(t, JobStatusKilled, job.Status)
+
+	info := job.snapshot(false)
+	assert.Equal(t, "killed", info.Status)
 
 	// Kill again should return false (already done).
-	assert.False(t, mgr.Kill(job.ID))
+	assert.False(t, mgr.Kill(job.id))
 }
 
 func TestBackgroundJobManager_Get(t *testing.T) {
@@ -100,9 +103,9 @@ func TestBackgroundJobManager_Get(t *testing.T) {
 	job := startAndRegister(t, mgr, sbx, "", "echo x")
 	job.Wait()
 
-	got := mgr.Get(job.ID)
+	got := mgr.Get(job.id)
 	require.NotNil(t, got)
-	assert.Equal(t, job.ID, got.ID)
+	assert.Equal(t, job.id, got.id)
 
 	assert.Nil(t, mgr.Get("nonexistent"))
 }
@@ -115,9 +118,9 @@ func TestBackgroundJobManager_Remove(t *testing.T) {
 	job.Wait()
 
 	assert.Len(t, mgr.List("", ""), 1)
-	mgr.Remove(job.ID)
+	mgr.Remove(job.id)
 	assert.Len(t, mgr.List("", ""), 0)
-	assert.Nil(t, mgr.Get(job.ID))
+	assert.Nil(t, mgr.Get(job.id))
 }
 
 func TestBackgroundJobManager_MaxJobs(t *testing.T) {
@@ -140,12 +143,11 @@ func TestBackgroundJobManager_GetOutputWhileRunning(t *testing.T) {
 
 	job := startAndRegister(t, mgr, sbx, "", "slow")
 
-	// Should not be done yet.
 	assert.False(t, job.IsDone())
 
 	job.Wait()
 	assert.True(t, job.IsDone())
-	assert.Equal(t, "partial", job.toInfo(true).Stdout)
+	assert.Equal(t, "partial", job.snapshot(true).Stdout)
 }
 
 func TestSyncBuffer_ThreadSafety(t *testing.T) {

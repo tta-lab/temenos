@@ -74,24 +74,24 @@ func validatePath(p string) error {
 	return nil
 }
 
-// jobSocketMountDir returns the parent directory of the job socket as a
-// read-write mount, so sandboxed agents can connect to temenos job list/log/kill.
-func jobSocketMountDir() string {
+// jobSocketPath returns the path to the job unix socket.
+func jobSocketPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".temenos")
+	return filepath.Join(home, ".temenos", "job.sock")
 }
 
-// jobSocketMount returns the job socket directory as a read-write mount,
+// jobSocketMount returns the job socket as a read-write mount,
 // or a zero-value mount if the home directory cannot be determined.
+// Only the socket file is mounted — not the entire ~/.temenos directory.
 func jobSocketMount() sandbox.Mount {
-	dir := jobSocketMountDir()
-	if dir == "" {
+	sock := jobSocketPath()
+	if sock == "" {
 		return sandbox.Mount{}
 	}
-	return sandbox.Mount{Source: dir, Target: dir, ReadOnly: false}
+	return sandbox.Mount{Source: sock, Target: sock, ReadOnly: false}
 }
 
 // buildMounts prepends baseline mounts, converts AllowedPath slice into sandbox.Mount
@@ -193,10 +193,11 @@ func handleRunAutoBackground(
 		case <-ticker.C:
 			if job.IsDone() {
 				// Finished within threshold — never touched registry.
+				info := job.snapshot(true)
 				return &RunResponse{
-					Stdout:          truncate(job.Stdout.String()),
-					Stderr:          truncate(job.Stderr.String()),
-					ExitCode:        job.ExitCode,
+					Stdout:          info.Stdout,
+					Stderr:          info.Stderr,
+					ExitCode:        info.ExitCode,
 					StrippedEnvKeys: stripped,
 				}, nil
 			}
@@ -207,7 +208,7 @@ func handleRunAutoBackground(
 				return nil, err
 			}
 			return &RunResponse{
-				JobID:  job.ID,
+				JobID:  job.id,
 				Status: "background",
 			}, nil
 		case <-ctx.Done():
@@ -350,7 +351,7 @@ func handleHTTPJobGet(jobMgr *BackgroundJobManager) http.HandlerFunc {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
 			return
 		}
-		writeJSON(w, http.StatusOK, job.toInfo(true))
+		writeJSON(w, http.StatusOK, job.snapshot(true))
 	}
 }
 
@@ -368,6 +369,6 @@ func handleHTTPJobKill(jobMgr *BackgroundJobManager) http.HandlerFunc {
 			return
 		}
 		jobMgr.Kill(id)
-		writeJSON(w, http.StatusOK, job.toInfo(true))
+		writeJSON(w, http.StatusOK, job.snapshot(true))
 	}
 }

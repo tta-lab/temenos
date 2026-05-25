@@ -27,18 +27,23 @@ const (
 
 // BackgroundJob tracks a detached command execution.
 type BackgroundJob struct {
-	ID             string
-	CallerID       string
-	Command        string
-	Status         JobStatus
-	Stdout         *syncBuffer
-	Stderr         *syncBuffer
-	ExitCode       int
-	StartedAt      time.Time
-	CompletedAt    time.Time
-	LastAccessedAt time.Time // set on first output read; GC countdown starts from here
-	cancel         context.CancelFunc
-	done           chan struct{}
+	mu sync.Mutex
+
+	// immutable after creation
+	id        string
+	callerID  string
+	command   string
+	stdout    *syncBuffer
+	stderr    *syncBuffer
+	cancel    context.CancelFunc
+	done      chan struct{}
+	startedAt time.Time
+
+	// mutable during execution — protected by mu
+	status         JobStatus
+	exitCode       int
+	completedAt    time.Time
+	lastAccessedAt time.Time
 }
 
 // JobInfo is the serializable view of a BackgroundJob.
@@ -96,12 +101,12 @@ func newBackgroundJob(
 ) *BackgroundJob {
 	jobCtx, cancel := context.WithCancel(ctx)
 	job := &BackgroundJob{
-		CallerID:  callerID,
-		Command:   command,
-		Status:    JobStatusRunning,
-		Stdout:    &syncBuffer{},
-		Stderr:    &syncBuffer{},
-		StartedAt: time.Now(),
+		callerID:  callerID,
+		command:   command,
+		status:    JobStatusRunning,
+		stdout:    &syncBuffer{},
+		stderr:    &syncBuffer{},
+		startedAt: time.Now(),
 		cancel:    cancel,
 		done:      make(chan struct{}),
 	}
@@ -110,20 +115,70 @@ func newBackgroundJob(
 		defer close(job.done)
 		stdout, stderr, exitCode, err := sbx.Exec(jobCtx, command, cfg)
 		if err != nil {
-			_, _ = job.Stderr.Write([]byte(err.Error() + "\n"))
+			_, _ = job.stderr.Write([]byte(err.Error() + "\n"))
 		}
-		_, _ = job.Stdout.Write([]byte(stdout))
-		_, _ = job.Stderr.Write([]byte(stderr))
-		job.ExitCode = exitCode
+		_, _ = job.stdout.Write([]byte(stdout))
+		_, _ = job.stderr.Write([]byte(stderr))
 		if jobCtx.Err() != nil {
-			job.Status = JobStatusKilled
+			job.finish(JobStatusKilled, exitCode)
 		} else {
-			job.Status = JobStatusCompleted
+			job.finish(JobStatusCompleted, exitCode)
 		}
-		job.CompletedAt = time.Now()
 	}()
 
 	return job
+}
+
+// finish records the terminal state of a job.
+func (j *BackgroundJob) finish(status JobStatus, exitCode int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	j.status = status
+	j.exitCode = exitCode
+	j.completedAt = time.Now()
+}
+
+// snapshot returns a point-in-time JobInfo. When withOutput is true and the
+// job is done, it includes stdout/stderr and marks the job as accessed
+// (starting the GC retention countdown).
+func (j *BackgroundJob) snapshot(withOutput bool) JobInfo {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	info := JobInfo{
+		ID:        j.id,
+		CallerID:  j.callerID,
+		Command:   j.command,
+		Status:    string(j.status),
+		ExitCode:  j.exitCode,
+		StartedAt: j.startedAt.Format(time.RFC3339),
+	}
+	if !j.completedAt.IsZero() {
+		info.CompletedAt = j.completedAt.Format(time.RFC3339)
+	}
+	if withOutput && j.status != JobStatusRunning {
+		info.Stdout = truncate(j.stdout.String())
+		info.Stderr = truncate(j.stderr.String())
+		if j.lastAccessedAt.IsZero() {
+			j.lastAccessedAt = time.Now()
+		}
+	}
+	return info
+}
+
+// isExpired reports whether a completed job should be garbage-collected.
+func (j *BackgroundJob) isExpired(now time.Time) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if j.status == JobStatusRunning {
+		return false
+	}
+	if j.lastAccessedAt.IsZero() {
+		return false
+	}
+	return now.Sub(j.lastAccessedAt) >= completedJobRetention
 }
 
 // Add registers an already-running job in the registry.
@@ -139,22 +194,19 @@ func (m *BackgroundJobManager) Add(job *BackgroundJob) error {
 	}
 
 	m.seq++
-	job.ID = fmt.Sprintf("%06x", m.seq)
-	m.jobs[job.ID] = job
+	job.id = fmt.Sprintf("%06x", m.seq)
+	m.jobs[job.id] = job
 	return nil
 }
 
 // Get returns a job by ID, or nil if not found.
-// Uses write lock because callers may trigger markAccessed via toInfo.
 func (m *BackgroundJobManager) Get(id string) *BackgroundJob {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.jobs[id]
 }
 
-// Remove deletes a job from the registry. Used for fast-completing jobs
-// that finished within the auto-background threshold and should not count
-// toward the concurrent job limit.
+// Remove deletes a job from the registry.
 func (m *BackgroundJobManager) Remove(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -168,13 +220,14 @@ func (m *BackgroundJobManager) List(status JobStatus, callerID string) []JobInfo
 
 	var result []JobInfo
 	for _, j := range m.jobs {
-		if status != "" && j.Status != status {
+		info := j.snapshot(false)
+		if status != "" && info.Status != string(status) {
 			continue
 		}
-		if callerID != "" && j.CallerID != callerID {
+		if callerID != "" && info.CallerID != callerID {
 			continue
 		}
-		result = append(result, j.toInfo(false))
+		result = append(result, info)
 	}
 	return result
 }
@@ -198,19 +251,11 @@ func (m *BackgroundJobManager) Kill(id string) bool {
 }
 
 // gcLocked removes completed jobs that have been accessed and are older than
-// the retention period. Jobs that have never been accessed are kept until
-// they are read or the limit is reached.
+// the retention period.
 func (m *BackgroundJobManager) gcLocked() {
 	now := time.Now()
 	for id, j := range m.jobs {
-		if j.Status == JobStatusRunning {
-			continue
-		}
-		// Only GC jobs that have been accessed (output read at least once).
-		if j.LastAccessedAt.IsZero() {
-			continue
-		}
-		if now.Sub(j.LastAccessedAt) >= completedJobRetention {
+		if j.isExpired(now) {
 			delete(m.jobs, id)
 		}
 	}
@@ -229,40 +274,6 @@ func (j *BackgroundJob) IsDone() bool {
 // Wait blocks until the job finishes.
 func (j *BackgroundJob) Wait() {
 	<-j.done
-}
-
-// toInfo converts a BackgroundJob to a serializable JobInfo snapshot.
-// When withOutput is true, marks the job as accessed (starts GC countdown).
-func (j *BackgroundJob) toInfo(withOutput bool) JobInfo {
-	info := JobInfo{
-		ID:        j.ID,
-		CallerID:  j.CallerID,
-		Command:   j.Command,
-		Status:    string(j.Status),
-		ExitCode:  j.ExitCode,
-		StartedAt: j.StartedAt.Format(time.RFC3339),
-	}
-	if !j.CompletedAt.IsZero() {
-		info.CompletedAt = j.CompletedAt.Format(time.RFC3339)
-	}
-	if withOutput {
-		info.Stdout = truncate(j.Stdout.String())
-		info.Stderr = truncate(j.Stderr.String())
-		j.markAccessed()
-	}
-	return info
-}
-
-// markAccessed sets LastAccessedAt for completed/killed jobs if not already set.
-// This starts the GC retention countdown. Running jobs are never marked —
-// GC already skips them, but this keeps the semantics clean.
-func (j *BackgroundJob) markAccessed() {
-	if j.Status == JobStatusRunning {
-		return
-	}
-	if j.LastAccessedAt.IsZero() {
-		j.LastAccessedAt = time.Now()
-	}
 }
 
 func truncate(s string) string {
