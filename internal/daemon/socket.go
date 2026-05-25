@@ -161,7 +161,8 @@ func parseListenAddr(addr string) (network, listenAddr string) {
 }
 
 // listenJobHTTP starts an HTTP server for the job socket using the job-only router.
-// The job socket permissions are 0o666 so sandboxed agents can access it.
+// The job socket uses 0o600 permissions — same as the admin socket. Sandboxed
+// agents run as the same UID, so owner-only permissions are sufficient.
 func listenJobHTTP(addr string, jobMgr *BackgroundJobManager) (*http.Server, <-chan error, error) {
 	network, listenAddr := parseListenAddr(addr)
 
@@ -177,7 +178,7 @@ func listenJobHTTP(addr string, jobMgr *BackgroundJobManager) (*http.Server, <-c
 	}
 
 	if network == networkUnix {
-		if err := os.Chmod(listenAddr, 0o666); err != nil {
+		if err := os.Chmod(listenAddr, 0o600); err != nil {
 			_ = ln.Close()
 			return nil, nil, err
 		}
