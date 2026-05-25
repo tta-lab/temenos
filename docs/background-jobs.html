@@ -74,7 +74,7 @@
   <li>If done in time &rarr; return synchronously (job removed from manager)</li>
   <li>If still running &rarr; return job ID + message: <em>"Use job_output tool to view output or job_kill to terminate"</em></li>
   <li>No partial output in the initial background response &mdash; model calls <code>job_output</code> if it wants to see stdout/stderr</li>
-  <li>Max 50 concurrent background jobs</li>
+  <li>Max 100 concurrent background jobs</li>
 </ul>
 
 <p>
@@ -162,7 +162,7 @@
 <table>
   <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>caller_id</code></td><td>string</td><td><code>""</code></td><td>Caller-assigned identifier. Used to filter jobs by caller. Lenos passes its session ID.</td></tr>
-  <tr><td><code>auto_background_after</code></td><td>int</td><td><code>0</code></td><td>Seconds to wait before moving to background. 0 = synchronous (current behavior, default timeout applies).</td></tr>
+  <tr><td><code>auto_background_after</code></td><td>int</td><td><code>15</code></td><td>Seconds to wait before moving to background. 0 = synchronous (current behavior, default timeout applies).</td></tr>
 </table>
 
 <h3><code>POST /run</code> &mdash; Response (Background)</h3>
@@ -248,7 +248,7 @@ type syncBuffer struct {
 
 <h3>Limits</h3>
 <ul>
-  <li>Max 50 concurrent background jobs per daemon</li>
+  <li>Max 100 concurrent background jobs per daemon</li>
   <li>Output truncated at 64KB per stream (consistent with existing <code>RunResponse</code>)</li>
   <li>Completed jobs GC'd after 5 minutes</li>
 </ul>

@@ -369,7 +369,10 @@ func handleHTTPJobKill(jobMgr *BackgroundJobManager) http.HandlerFunc {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "job already completed"})
 			return
 		}
-		jobMgr.Kill(id)
+		if !jobMgr.Kill(id) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "job already completed"})
+			return
+		}
 		writeJSON(w, http.StatusOK, job.snapshot(true))
 	}
 }
