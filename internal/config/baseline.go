@@ -21,6 +21,11 @@ package config
 //	            breaks intentional terminal-mode behavior. If TUI is
 //	            needed, operators add TERM to allow_env explicitly.
 //
+//	GOTELEMETRY Sandbox hardcodes GOTELEMETRY=off in buildEnv. The Go
+//	            toolchain telemetry sidecar requires /proc/self/exe which
+//	            is unavailable in sandboxed environments (bwrap, seatbelt).
+//	            Forcing off prevents noisy startup errors.
+//
 //	SSH_AUTH_SOCK / SSH_AGENT_PID
 //	            Exposes the host SSH agent to sandboxed processes.
 //
@@ -86,8 +91,9 @@ var BaselineAllowEnv = []string{
 
 func init() {
 	for _, p := range BaselineAllowEnv {
-		if p == "PATH" || p == "TERM" {
-			panic("config: BaselineAllowEnv must not contain PATH or TERM — they are injected by buildEnv; see baseline.go")
+		if p == "PATH" || p == "TERM" || p == "GOTELEMETRY" {
+			panic("config: BaselineAllowEnv must not contain PATH, TERM, or " +
+				"GOTELEMETRY — they are injected by buildEnv; see baseline.go")
 		}
 	}
 }

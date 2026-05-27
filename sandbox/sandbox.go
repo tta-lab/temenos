@@ -139,6 +139,7 @@ func buildEnv(cfg *ExecConfig, fallbackHome string) []string {
 	base := []string{
 		"PATH=" + buildSandboxPATH(),
 		"TERM=dumb",
+		"GOTELEMETRY=off",
 	}
 	if cfg != nil {
 		base = append(base, cfg.Env...)

@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestBaselineAllowEnv_ExcludesOverridableKeys is a regression guard: PATH
-// and TERM are deliberately injected by sandbox.buildEnv and must NEVER be
-// in the baseline (would let callers override the sandbox PATH/TERM via
-// duplicate-key precedence in os/exec).
+// TestBaselineAllowEnv_ExcludesOverridableKeys is a regression guard: PATH,
+// TERM, and GOTELEMETRY are deliberately injected by sandbox.buildEnv and
+// must NEVER be in the baseline (would let callers override the sandbox
+// values via duplicate-key precedence in os/exec).
 func TestBaselineAllowEnv_ExcludesOverridableKeys(t *testing.T) {
-	for _, forbidden := range []string{"PATH", "TERM"} {
+	for _, forbidden := range []string{"PATH", "TERM", "GOTELEMETRY"} {
 		assert.False(t, slices.Contains(BaselineAllowEnv, forbidden),
 			"%s must NOT be in BaselineAllowEnv (see baseline.go exclusion rationale)", forbidden)
 	}
