@@ -92,7 +92,8 @@ var BaselineAllowEnv = []string{
 func init() {
 	for _, p := range BaselineAllowEnv {
 		if p == "PATH" || p == "TERM" || p == "GOTELEMETRY" {
-			panic("config: BaselineAllowEnv must not contain PATH, TERM, or GOTELEMETRY — they are injected by buildEnv; see baseline.go")
+			panic("config: BaselineAllowEnv must not contain PATH, TERM, or " +
+				"GOTELEMETRY — they are injected by buildEnv; see baseline.go")
 		}
 	}
 }
