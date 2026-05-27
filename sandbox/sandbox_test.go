@@ -89,7 +89,9 @@ func TestBuildEnv_Nil(t *testing.T) {
 	pathEntry := findPathEntry(env)
 	assert.Contains(t, pathEntry, "/usr/bin")
 	assert.Contains(t, pathEntry, "/bin")
-	assert.Len(t, env, 4) // PATH, HOME, TERM, GOTELEMETRY
+	assert.Contains(t, env, "TERM=dumb")
+	assert.Contains(t, env, "GOTELEMETRY=off")
+	assert.Contains(t, env, "HOME=/home/agent")
 }
 
 func TestBuildEnv_WithFallbackHome(t *testing.T) {
