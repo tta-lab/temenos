@@ -128,13 +128,12 @@ func NewJobClient() (*Client, error) {
 
 // RunRequest is the body for POST /run.
 type RunRequest struct {
-	Command             string            `json:"command"`
-	Env                 map[string]string `json:"env,omitempty"`
-	AllowedPaths        []AllowedPath     `json:"allowed_paths,omitempty"`
-	Network             *bool             `json:"network,omitempty"`
-	Timeout             int               `json:"timeout,omitempty"` // seconds, 0 = default
-	CallerID            string            `json:"caller_id,omitempty"`
-	AutoBackgroundAfter int               `json:"auto_background_after,omitempty"`
+	Command      string            `json:"command"`
+	Env          map[string]string `json:"env,omitempty"`
+	AllowedPaths []AllowedPath     `json:"allowed_paths,omitempty"`
+	Network      *bool             `json:"network,omitempty"`
+	Timeout      int               `json:"timeout,omitempty"` // seconds, 0 = default
+	CallerID     string            `json:"caller_id,omitempty"`
 }
 
 // AllowedPath specifies a filesystem path allowed in the sandbox.

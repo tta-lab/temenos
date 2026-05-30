@@ -1,7 +1,11 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -97,10 +101,9 @@ func TestHandleRun_BackgroundJobOutlivesRequestContext(t *testing.T) {
 	sbx := &mockSandbox{delay: 10 * time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	resp, err := handleRun(ctx, &config.Config{}, sbx, mgr, RunRequest{
-		Command:             "sleep 10",
-		AutoBackgroundAfter: 1,
-		Timeout:             30,
+	resp, err := handleRun(ctx, &config.Config{AutoBackgroundAfter: 1}, sbx, mgr, RunRequest{
+		Command: "sleep 10",
+		Timeout: 30,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "background", resp.Status)
@@ -114,6 +117,31 @@ func TestHandleRun_BackgroundJobOutlivesRequestContext(t *testing.T) {
 	assert.False(t, job.IsDone())
 	job.cancel()
 	job.Wait()
+}
+
+func TestHTTPRun_IgnoresAutoBackgroundAfterRequestField(t *testing.T) {
+	mgr := NewBackgroundJobManager()
+	sbx := &mockSandbox{delay: 1500 * time.Millisecond}
+	handler := handleHTTPRunValidating(httpHandlers{
+		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
+			return handleRun(ctx, &config.Config{AutoBackgroundAfter: 1}, sbx, mgr, req)
+		},
+	})
+
+	body := []byte(`{"command":"sleep 2","auto_background_after":30,"timeout":5}`)
+	req := httptest.NewRequest(http.MethodPost, "/run", bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(req.Context(), 3*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp RunResponse
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.Equal(t, "background", resp.Status)
+	require.NotEmpty(t, resp.JobID)
 }
 
 func TestBuildMounts_MetadataOnlyPassedThrough(t *testing.T) {

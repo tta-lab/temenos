@@ -29,6 +29,23 @@ socket_path = "/custom/daemon.sock"
 	assert.Equal(t, []string{"/write/path1"}, cfg.AllowWrite)
 	assert.Equal(t, 5000, cfg.MCPPort)
 	assert.Equal(t, "/custom/daemon.sock", cfg.SocketPath)
+	assert.Equal(t, DefaultAutoBackgroundAfter, cfg.AutoBackgroundAfter)
+}
+
+func TestLoad_AutoBackgroundAfterFromConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	configContent := `
+auto_background_after = 1
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, cfg.AutoBackgroundAfter)
 }
 
 func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
@@ -36,6 +53,7 @@ func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 9783, cfg.MCPPort)
+	assert.Equal(t, DefaultAutoBackgroundAfter, cfg.AutoBackgroundAfter)
 	assert.NotEmpty(t, cfg.SocketPath)
 	assert.Contains(t, cfg.SocketPath, ".temenos/daemon.sock")
 

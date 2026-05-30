@@ -54,11 +54,11 @@
 <p>
   Temenos's <code>POST /run</code> and MCP <code>bash</code> tool are fully synchronous.
   The caller blocks until the sandboxed command finishes or the context deadline kills it.
-  The default timeout is 120 seconds &mdash; long enough to waste agent turns on builds,
+  The default <code>/run</code> timeout is 20 minutes &mdash; long enough to waste agent turns on builds,
   installs, and test runs, but not long enough for genuinely slow work.
 </p>
 <p>
-  A short auto-background timeout (15s) lets fast commands return synchronously while
+  A short auto-background timeout (default 30s) lets fast commands return synchronously while
   long-running ones detach into pollable jobs. The agent gets immediate feedback and can
   choose to check back or continue other work.
 </p>
@@ -114,14 +114,13 @@
 <pre><code>Agent (bash)                   Temenos                      Background Job
      |                            |                              |
      |-- POST /run --------------&gt;|                              |
-     |   {command, caller_id,     |                              |
-     |    auto_background_after}  |                              |
+     |   {command, caller_id}     |                              |
      |                            |-- start process -------------&gt;|
      |                            |                              |
      |                            |   [poll every 100ms]         |
      |                            |&lt;-- stdout/stderr (streaming)-|
      |                            |                              |
-     |   [15s threshold]          |                              |
+     |   [configured threshold]   |                              |
      |                            |                              |
      |&lt;-- {job_id, status:"bg"} --|                              |
      |                            |                              |
@@ -139,11 +138,11 @@
 <pre><code>Agent (bash)                   Temenos
      |                            |
      |-- POST /run --------------&gt;|
-     |   {command, caller_id,     |
-     |    auto_background_after}  |
+     |   {command, caller_id}     |
      |                            |-- start process
      |                            |
-     |   [completes in &lt;15s]      |
+     |   [completes before        |
+     |    configured threshold]   |
      |                            |
      |&lt;-- {stdout, stderr,        |
      |     exit_code}             |
@@ -152,21 +151,19 @@
 
 <h2>API Changes</h2>
 
-<h3><code>POST /run</code> &mdash; Extended Request</h3>
+<h3><code>POST /run</code> &mdash; Request</h3>
 <pre><code>{
   "command": "go build ./...",
-  "caller_id": "lenos-session-abc123",
-  "auto_background_after": 15
+  "caller_id": "lenos-session-abc123"
 }</code></pre>
 
 <table>
   <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
   <tr><td><code>caller_id</code></td><td>string</td><td><code>""</code></td><td>Caller-assigned identifier. Used to filter jobs by caller. Lenos passes its session ID.</td></tr>
-  <tr><td><code>auto_background_after</code></td><td>int</td><td><code>15</code></td><td>Seconds to wait before moving to background. 0 = synchronous (current behavior, default timeout applies).</td></tr>
 </table>
 
 <h3><code>POST /run</code> &mdash; Response (Background)</h3>
-<p>When a command exceeds <code>auto_background_after</code>:</p>
+<p>When a command exceeds the configured auto-background threshold:</p>
 <pre><code>{
   "job_id": "a1b2c3",
   "status": "background"
@@ -238,8 +235,8 @@ type syncBuffer struct {
 
 <h3>Lifecycle</h3>
 <ol>
-  <li><strong>Start</strong> &mdash; <code>POST /run</code> with <code>auto_background_after &gt; 0</code> calls <code>jobManager.Start(ctx, callerID, command, execCfg, sbx)</code>. Returns immediately with a <code>*BackgroundJob</code>.</li>
-  <li><strong>Poll</strong> &mdash; Handler polls <code>job.IsDone()</code> every 100ms (like Crush) for up to <code>auto_background_after</code> seconds.</li>
+  <li><strong>Start</strong> &mdash; <code>POST /run</code> starts the command as a <code>*BackgroundJob</code>.</li>
+  <li><strong>Poll</strong> &mdash; Handler polls <code>job.IsDone()</code> every 100ms (like Crush) for up to the configured threshold.</li>
   <li><strong>Fast return</strong> &mdash; If done within threshold: remove from manager, return synchronous <code>RunResponse</code>.</li>
   <li><strong>Background</strong> &mdash; If still running: return <code>{job_id, status: "background"}</code>. Job stays in manager.</li>
   <li><strong>Completion</strong> &mdash; Background goroutine finishes, updates <code>Status</code>, <code>ExitCode</code>, <code>CompletedAt</code>.</li>
@@ -288,7 +285,6 @@ type RunRequest struct {
     Network            bool          `json:"network,omitempty"`
     Timeout            int           `json:"timeout,omitempty"`
     CallerID           string        `json:"caller_id,omitempty"`
-    AutoBackgroundAfter int          `json:"auto_background_after,omitempty"`
 }
 
 type RunResponse struct {
