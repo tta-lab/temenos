@@ -31,7 +31,7 @@ type RunRequest struct {
 	// CallerID is an opaque identifier assigned by the caller (e.g. Lenos session ID).
 	// Used to filter jobs by caller. Not interpreted by Temenos.
 	CallerID string `json:"caller_id,omitempty"`
-	// AutoBackgroundAfter is seconds to wait before moving to background. Default: 15.
+	// AutoBackgroundAfter is seconds to wait before moving to background. Default: 30.
 	AutoBackgroundAfter int `json:"auto_background_after,omitempty"`
 }
 
@@ -139,7 +139,7 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 }
 
 const (
-	defaultAutoBackgroundAfter = 15 // seconds
+	defaultAutoBackgroundAfter = 30 // seconds
 	defaultRunTimeout          = 20 * time.Minute
 )
 
@@ -147,7 +147,7 @@ func handleRun(
 	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager, req RunRequest,
 ) (*RunResponse, error) {
-	// Default to 15s auto-background unless explicitly set.
+	// Default to 30s auto-background unless explicitly set.
 	autoBackground := req.AutoBackgroundAfter
 	if autoBackground == 0 {
 		autoBackground = defaultAutoBackgroundAfter
