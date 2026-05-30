@@ -95,20 +95,8 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Apply defaults if not set
-	if cfg.MCPPort == 0 {
-		cfg.MCPPort = 9783
-	} else if cfg.MCPPort < 1 || cfg.MCPPort > 65535 {
-		return nil, fmt.Errorf("mcp_port %d is out of range (1-65535)", cfg.MCPPort)
-	}
-	if cfg.AutoBackgroundAfter == 0 {
-		cfg.AutoBackgroundAfter = DefaultAutoBackgroundAfter
-	}
-	if cfg.SocketPath == "" {
-		cfg.SocketPath, err = ExpandHome("~/.temenos/daemon.sock")
-		if err != nil {
-			return nil, err
-		}
+	if err := cfg.applyDefaults(); err != nil {
+		return nil, err
 	}
 
 	// Expand ~ in AllowRead, AllowWrite, and SocketPath
@@ -132,6 +120,25 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func (c *Config) applyDefaults() error {
+	if c.MCPPort == 0 {
+		c.MCPPort = 9783
+	} else if c.MCPPort < 1 || c.MCPPort > 65535 {
+		return fmt.Errorf("mcp_port %d is out of range (1-65535)", c.MCPPort)
+	}
+	if c.AutoBackgroundAfter == 0 {
+		c.AutoBackgroundAfter = DefaultAutoBackgroundAfter
+	}
+	if c.SocketPath == "" {
+		socketPath, err := ExpandHome("~/.temenos/daemon.sock")
+		if err != nil {
+			return err
+		}
+		c.SocketPath = socketPath
+	}
+	return nil
 }
 
 // validateAllowEnv checks that each pattern in allowEnv is a valid filepath.Match
