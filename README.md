@@ -83,17 +83,16 @@ allow_env = [
   "TTAL_AGENT_NAME",
 ]
 
+# Optional defaults, shown here for reference. Uncomment to override.
+
 # Admin socket path.
-# Default: "~/.temenos/daemon.sock"
-socket_path = "~/.temenos/daemon.sock"
+# socket_path = "~/.temenos/daemon.sock"
 
 # MCP port. The MCP server binds to 127.0.0.1 only.
-# Default: 9783
-mcp_port = 9783
+# mcp_port = 9783
 
 # Seconds to wait before long commands move to a background job.
-# Default: 30
-auto_background_after = 30
+# auto_background_after = 30
 ```
 
 Callers cannot extend `allow_env` or change `auto_background_after` per-request — both are intentionally operator-only. See `docs/sandbox-security-model.md` for the full security model.
