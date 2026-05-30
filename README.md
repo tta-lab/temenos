@@ -58,7 +58,7 @@ On macOS, `daemon install` writes a LaunchAgent plist to `~/Library/LaunchAgents
 
 ## Configuration
 
-Temenos is configured via `~/.config/temenos/config.toml` (override with `TEMENOS_CONFIG_PATH`). The config declares baseline filesystem and environment allow-lists for every sandboxed command.
+Temenos is configured via `~/.config/temenos/config.toml` (override with `TEMENOS_CONFIG_PATH`). The config declares daemon settings and baseline filesystem and environment allow-lists for every sandboxed command.
 
 ```toml
 # ~/.config/temenos/config.toml
@@ -83,14 +83,31 @@ allow_env = [
   "TTAL_AGENT_NAME",
 ]
 
-# Admin socket path (default: ~/.temenos/daemon.sock).
-# socket_path = "~/.temenos/daemon.sock"
+# Admin socket path.
+# Default: "~/.temenos/daemon.sock"
+socket_path = "~/.temenos/daemon.sock"
 
-# MCP port (default: 9783, bound to 127.0.0.1 only).
-# mcp_port = 9783
+# MCP port. The MCP server binds to 127.0.0.1 only.
+# Default: 9783
+mcp_port = 9783
+
+# Seconds to wait before long commands move to a background job.
+# Default: 30
+auto_background_after = 30
 ```
 
-Callers cannot extend `allow_env` per-request — it is intentionally operator-only. See `docs/sandbox-security-model.md` for the full security model.
+Callers cannot extend `allow_env` or change `auto_background_after` per-request — both are intentionally operator-only. See `docs/sandbox-security-model.md` for the full security model.
+
+Config keys:
+
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `allow_read` | `[]string` | `[]` | Read-only paths mounted into every sandboxed command. `~` is expanded. |
+| `allow_write` | `[]string` | `[]` | Read-write paths mounted into every sandboxed command. `~` is expanded. |
+| `allow_env` | `[]string` | `[]` | Extends the built-in baseline env allow-list. Supports `filepath.Match` globs. |
+| `socket_path` | `string` | `~/.temenos/daemon.sock` | Admin HTTP unix socket path. `~` is expanded. |
+| `mcp_port` | `int` | `9783` | MCP Streamable HTTP port, bound to localhost. Must be `1..65535`. |
+| `auto_background_after` | `int` | `30` | Seconds before a still-running `/run` command becomes a background job. `0` means use the default. |
 
 ### Baseline allow_env
 
@@ -183,7 +200,7 @@ The Docker image includes [Organon](https://github.com/tta-lab/organon) binaries
 
 - Output truncated at 64KB per stream (stdout/stderr)
 - Request body capped at 1 MiB
-- Default execution timeout: 120s
+- Default `/run` execution timeout: 20 minutes
 
 ## Memory limits (Linux)
 

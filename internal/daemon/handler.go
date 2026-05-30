@@ -31,8 +31,6 @@ type RunRequest struct {
 	// CallerID is an opaque identifier assigned by the caller (e.g. Lenos session ID).
 	// Used to filter jobs by caller. Not interpreted by Temenos.
 	CallerID string `json:"caller_id,omitempty"`
-	// AutoBackgroundAfter is seconds to wait before moving to background. Default: 30.
-	AutoBackgroundAfter int `json:"auto_background_after,omitempty"`
 }
 
 // AllowedPath specifies a filesystem mount for the sandbox.
@@ -139,20 +137,17 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 }
 
 const (
-	defaultAutoBackgroundAfter = 30 // seconds
-	defaultRunTimeout          = 20 * time.Minute
+	defaultRunTimeout = 20 * time.Minute
 )
 
 func handleRun(
 	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager, req RunRequest,
 ) (*RunResponse, error) {
-	// Default to 30s auto-background unless explicitly set.
-	autoBackground := req.AutoBackgroundAfter
+	autoBackground := cfg.AutoBackgroundAfter
 	if autoBackground == 0 {
-		autoBackground = defaultAutoBackgroundAfter
+		autoBackground = config.DefaultAutoBackgroundAfter
 	}
-	req.AutoBackgroundAfter = autoBackground
 
 	runTimeout := defaultRunTimeout
 	if req.Timeout > 0 {
@@ -160,7 +155,7 @@ func handleRun(
 	}
 	jobCtx, cancel := context.WithTimeout(context.Background(), runTimeout)
 
-	resp, err := handleRunAutoBackground(ctx, jobCtx, cancel, cfg, sbx, jobMgr, req)
+	resp, err := handleRunAutoBackground(ctx, jobCtx, cancel, cfg, sbx, jobMgr, req, autoBackground)
 	if err != nil || resp.JobID == "" {
 		cancel()
 	}
@@ -168,7 +163,7 @@ func handleRun(
 }
 
 // handleRunAutoBackground starts the command as a background job and polls
-// for up to AutoBackgroundAfter seconds. If the command finishes in time,
+// for up to autoBackgroundAfter seconds. If the command finishes in time,
 // it returns a normal RunResponse. Otherwise it returns a job_id with
 // status "background".
 func handleRunAutoBackground(
@@ -179,6 +174,7 @@ func handleRunAutoBackground(
 	sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager,
 	req RunRequest,
+	autoBackgroundAfter int,
 ) (*RunResponse, error) {
 	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths, jobSocketMount())
 	if err != nil {
@@ -199,7 +195,7 @@ func handleRunAutoBackground(
 	// Start process locally — not in registry yet.
 	job := newBackgroundJob(jobCtx, req.CallerID, req.Command, sbx, execCfg, jobDone)
 
-	threshold := time.Duration(req.AutoBackgroundAfter) * time.Second
+	threshold := time.Duration(autoBackgroundAfter) * time.Second
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	timeout := time.NewTimer(threshold)

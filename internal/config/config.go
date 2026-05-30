@@ -12,13 +12,18 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// DefaultAutoBackgroundAfter is the default number of seconds to wait before
+// moving a long-running command to a background job.
+const DefaultAutoBackgroundAfter = 30
+
 // Config holds the temenos daemon configuration.
 type Config struct {
-	AllowRead  []string `toml:"allow_read"`
-	AllowWrite []string `toml:"allow_write"`
-	AllowEnv   []string `toml:"allow_env"`
-	MCPPort    int      `toml:"mcp_port"`    // default: 9783
-	SocketPath string   `toml:"socket_path"` // default: ~/.temenos/daemon.sock
+	AllowRead           []string `toml:"allow_read"`
+	AllowWrite          []string `toml:"allow_write"`
+	AllowEnv            []string `toml:"allow_env"`
+	AutoBackgroundAfter int      `toml:"auto_background_after"` // seconds, default: 30
+	MCPPort             int      `toml:"mcp_port"`              // default: 9783
+	SocketPath          string   `toml:"socket_path"`           // default: ~/.temenos/daemon.sock
 }
 
 // DefaultConfigPath returns the default configuration file path.
@@ -54,9 +59,10 @@ func defaultConfig() (*Config, error) {
 		return nil, err
 	}
 	return &Config{
-		MCPPort:    9783,
-		AllowWrite: nil,
-		SocketPath: socketPath,
+		AutoBackgroundAfter: DefaultAutoBackgroundAfter,
+		MCPPort:             9783,
+		AllowWrite:          nil,
+		SocketPath:          socketPath,
 	}, nil
 }
 
@@ -94,6 +100,9 @@ func Load(path string) (*Config, error) {
 		cfg.MCPPort = 9783
 	} else if cfg.MCPPort < 1 || cfg.MCPPort > 65535 {
 		return nil, fmt.Errorf("mcp_port %d is out of range (1-65535)", cfg.MCPPort)
+	}
+	if cfg.AutoBackgroundAfter == 0 {
+		cfg.AutoBackgroundAfter = DefaultAutoBackgroundAfter
 	}
 	if cfg.SocketPath == "" {
 		cfg.SocketPath, err = ExpandHome("~/.temenos/daemon.sock")

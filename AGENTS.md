@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents when working with code in this repository.
 
 ## What is Temenos
 
@@ -61,7 +61,7 @@ Seatbelt policies are embedded via `//go:embed` from three `.sbpl` files in `san
 - Daemon creates a fresh temp HOME dir per seatbelt execution and cleans it up after
 - Output truncated at 64KB per stream
 - Request body capped at 1 MiB
-- Default execution timeout: 120s
+- Default `/run` execution timeout: 20 minutes
 - Version injected via `-ldflags` at build time (`cli.Version`)
 - `gocyclo` max complexity: 15, line length limit: 120
 - RunRequest.Env and session.Env both filter through Config.EffectiveAllowEnv() (BaselineAllowEnv + user allow_env, deduped, filepath.Match globs); baseline is unconditional, user config extends — never replaces — it
