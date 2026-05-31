@@ -30,6 +30,18 @@ func TestBwrapSandbox_BuildArgs(t *testing.T) {
 	assert.Contains(t, args, "--share-net")
 	assert.Contains(t, args, "--die-with-parent")
 
+	// Fresh procfs is needed for /proc/self/exe without exposing host /proc.
+	foundProc := false
+	for i, a := range args {
+		if a == procArg && i+1 < len(args) && args[i+1] == staticProc {
+			foundProc = true
+		}
+		if (a == roBind || a == rwBind) && i+2 < len(args) && args[i+1] == staticProc {
+			t.Fatalf("host /proc must not be bind-mounted: %v", args[i:i+3])
+		}
+	}
+	assert.True(t, foundProc, "expected bwrap --proc /proc")
+
 	// Verify command is last
 	require.GreaterOrEqual(t, len(args), 3)
 	assert.Equal(t, "bash", args[len(args)-3])
@@ -238,6 +250,19 @@ func TestBwrapSandbox_MemoryLimit_Degradation(t *testing.T) {
 	if !strings.Contains(stdout, "hello") {
 		t.Errorf("stdout = %q, want 'hello'", stdout)
 	}
+}
+
+func TestBwrapSandbox_ExecProvidesProcSelfExe(t *testing.T) {
+	sbx := &BwrapSandbox{BwrapPath: "bwrap", Timeout: 5 * time.Second}
+	if !sbx.IsAvailable() {
+		t.Skip("bwrap not available")
+	}
+
+	stdout, stderr, exitCode, err := sbx.Exec(context.Background(), "readlink /proc/self/exe", nil)
+
+	require.NoError(t, err, "stderr: %s", stderr)
+	assert.Equal(t, 0, exitCode, "stderr: %s", stderr)
+	assert.NotEmpty(t, strings.TrimSpace(stdout))
 }
 
 func TestAppendBwrapToolBinds_NoDuplicates(t *testing.T) {
