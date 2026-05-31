@@ -83,7 +83,6 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 	args := []string{
 		roBind, staticUsr, staticUsr,
 		roBind, staticBin, staticBin,
-		procArg, staticProc,
 		"--tmpfs", "/tmp",
 		"--tmpfs", "/home/agent",
 		"--unshare-all",
