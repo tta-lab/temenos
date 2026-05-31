@@ -99,31 +99,6 @@ func New(addr string) (*Client, error) {
 	}, nil
 }
 
-// defaultJobSocketPath resolves the temenos job socket path.
-// TEMENOS_JOB_SOCKET_PATH overrides the default ~/.temenos/job.sock.
-func defaultJobSocketPath() (string, error) {
-	if p := os.Getenv("TEMENOS_JOB_SOCKET_PATH"); p != "" {
-		return p, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("temenos: cannot determine home directory: %w", err)
-	}
-	return filepath.Join(home, ".temenos", "job.sock"), nil
-}
-
-// NewJobClient creates a client connected to the job socket.
-// Connects to the read-only job API (~/.temenos/job.sock) for
-// safe access from within sandboxed environments.
-// Override via TEMENOS_JOB_SOCKET_PATH.
-func NewJobClient() (*Client, error) {
-	addr, err := defaultJobSocketPath()
-	if err != nil {
-		return nil, err
-	}
-	return New(addr)
-}
-
 // New creates a client connected to the temenos daemon.
 
 // RunRequest is the body for POST /run.

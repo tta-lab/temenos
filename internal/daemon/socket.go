@@ -51,17 +51,6 @@ func newRouter(h httpHandlers) *chi.Mux {
 	return r
 }
 
-// newJobRouter returns a router with only job endpoints.
-// Used for the job socket that agents can safely access.
-func newJobRouter(jobMgr *BackgroundJobManager) *chi.Mux {
-	r := chi.NewRouter()
-	r.Use(middleware.Recoverer)
-	r.Get("/jobs", handleHTTPJobList(jobMgr))
-	r.Get("/jobs/{id}", handleHTTPJobGet(jobMgr))
-	r.Delete("/jobs/{id}", handleHTTPJobKill(jobMgr))
-	return r
-}
-
 func handleHTTPHealth(h httpHandlers) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, h.health())
@@ -160,42 +149,3 @@ func parseListenAddr(addr string) (network, listenAddr string) {
 	return "tcp", addr
 }
 
-// listenJobHTTP starts an HTTP server for the job socket using the job-only router.
-// The job socket uses 0o600 permissions — same as the admin socket. Sandboxed
-// agents run as the same UID, so owner-only permissions are sufficient.
-func listenJobHTTP(addr string, jobMgr *BackgroundJobManager) (*http.Server, <-chan error, error) {
-	network, listenAddr := parseListenAddr(addr)
-
-	if network == networkUnix {
-		if err := os.Remove(listenAddr); err != nil && !os.IsNotExist(err) {
-			log.Printf("[daemon] warning: could not remove stale socket %s: %v", listenAddr, err)
-		}
-	}
-
-	ln, err := net.Listen(network, listenAddr)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if network == networkUnix {
-		if err := os.Chmod(listenAddr, 0o600); err != nil {
-			_ = ln.Close()
-			return nil, nil, err
-		}
-	}
-
-	srv := &http.Server{
-		Handler:      newJobRouter(jobMgr),
-		ReadTimeout:  serverReadTimeout,
-		WriteTimeout: serverWriteTimeout,
-	}
-
-	serveErr := make(chan error, 1)
-	go func() {
-		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
-			serveErr <- err
-		}
-		close(serveErr)
-	}()
-	return srv, serveErr, nil
-}

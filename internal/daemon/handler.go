@@ -72,26 +72,6 @@ func validatePath(p string) error {
 	return nil
 }
 
-// jobSocketPath returns the path to the job unix socket.
-func jobSocketPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".temenos", "job.sock")
-}
-
-// jobSocketMount returns the job socket as a read-write mount,
-// or a zero-value mount if the home directory cannot be determined.
-// Only the socket file is mounted — not the entire ~/.temenos directory.
-func jobSocketMount() sandbox.Mount {
-	sock := jobSocketPath()
-	if sock == "" {
-		return sandbox.Mount{}
-	}
-	return sandbox.Mount{Source: sock, Target: sock, ReadOnly: false}
-}
-
 // buildMounts prepends baseline mounts, converts AllowedPath slice into sandbox.Mount
 // slice (with validation), then appends ancestor directories of all non-MetadataOnly
 // mounts as MetadataOnly mounts. This lets sandboxed processes stat parent directories
@@ -176,7 +156,7 @@ func handleRunAutoBackground(
 	req RunRequest,
 	autoBackgroundAfter int,
 ) (*RunResponse, error) {
-	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths, jobSocketMount())
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
 	if err != nil {
 		return nil, err
 	}

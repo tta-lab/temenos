@@ -19,7 +19,7 @@ var jobListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List background jobs",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := client.NewJobClient()
+		c, err := client.New("")
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ var jobLogCmd = &cobra.Command{
 	Short: "Show output of a background job",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := client.NewJobClient()
+		c, err := client.New("")
 		if err != nil {
 			return err
 		}
@@ -85,7 +85,7 @@ var jobKillCmd = &cobra.Command{
 	Short: "Kill a running background job",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, err := client.NewJobClient()
+		c, err := client.New("")
 		if err != nil {
 			return err
 		}
