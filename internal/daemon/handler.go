@@ -72,39 +72,16 @@ func validatePath(p string) error {
 	return nil
 }
 
-// jobSocketPath returns the path to the job unix socket.
-func jobSocketPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".temenos", "job.sock")
-}
-
-// jobSocketMount returns the job socket as a read-write mount,
-// or a zero-value mount if the home directory cannot be determined.
-// Only the socket file is mounted — not the entire ~/.temenos directory.
-func jobSocketMount() sandbox.Mount {
-	sock := jobSocketPath()
-	if sock == "" {
-		return sandbox.Mount{}
-	}
-	return sandbox.Mount{Source: sock, Target: sock, ReadOnly: false}
-}
-
 // buildMounts prepends baseline mounts, converts AllowedPath slice into sandbox.Mount
 // slice (with validation), then appends ancestor directories of all non-MetadataOnly
 // mounts as MetadataOnly mounts. This lets sandboxed processes stat parent directories
 // (e.g. git rev-parse --path-format=absolute walks up the tree) without granting broader
 // access. Ancestors are appended AFTER explicit mounts to preserve mounts[0].Source as
 // the working directory in buildExecConfig. Root (/) is excluded.
-func buildMounts(baseline []sandbox.Mount, paths []AllowedPath, extraMounts ...sandbox.Mount) ([]sandbox.Mount, error) {
+func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount, error) {
 	// Start with baseline mounts (from config).
 	mounts := make([]sandbox.Mount, len(baseline))
 	copy(mounts, baseline)
-
-	// Append any extra mounts (e.g. job socket directory).
-	mounts = append(mounts, extraMounts...)
 
 	// Append mounts from the request AllowedPaths.
 	for _, ap := range paths {
@@ -138,6 +115,7 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 
 const (
 	defaultRunTimeout = 20 * time.Minute
+	jsonErrKey        = "error"
 )
 
 func handleRun(
@@ -176,7 +154,7 @@ func handleRunAutoBackground(
 	req RunRequest,
 	autoBackgroundAfter int,
 ) (*RunResponse, error) {
-	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths, jobSocketMount())
+	mounts, err := buildMounts(cfg.BaselineMounts(), req.AllowedPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -253,10 +231,10 @@ func handleHTTPValidating[Req any, Resp any](fn func(context.Context, Req) (*Res
 		resp, err := fn(r.Context(), req)
 		if err != nil {
 			if errors.Is(err, errHTTPValidation) {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				writeJSON(w, http.StatusBadRequest, map[string]string{jsonErrKey: err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{jsonErrKey: err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)
@@ -301,7 +279,7 @@ func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
 			return
 		}
 		if req.Agent == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent must not be empty"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{jsonErrKey: "agent must not be empty"})
 			return
 		}
 		resp, err := handleSessionRegister(store, req)
@@ -310,7 +288,7 @@ func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
 			if errors.Is(err, session.ErrValidation) {
 				status = http.StatusBadRequest
 			}
-			writeJSON(w, status, map[string]string{"error": err.Error()})
+			writeJSON(w, status, map[string]string{jsonErrKey: err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)
@@ -327,7 +305,7 @@ func handleHTTPSessionDelete(store *session.Store) http.HandlerFunc {
 			return
 		}
 		if err := handleSessionDelete(store, token); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{jsonErrKey: err.Error()})
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -347,7 +325,7 @@ func handleHTTPJobList(jobMgr *BackgroundJobManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status, err := normalizeJobStatus(r.URL.Query().Get("status"))
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusBadRequest, map[string]string{jsonErrKey: err.Error()})
 			return
 		}
 		callerID := r.URL.Query().Get("caller_id")
@@ -376,7 +354,7 @@ func handleHTTPJobGet(jobMgr *BackgroundJobManager) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		job := jobMgr.Get(id)
 		if job == nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{jsonErrKey: "job not found"})
 			return
 		}
 		writeJSON(w, http.StatusOK, job.snapshot(true))
@@ -389,15 +367,15 @@ func handleHTTPJobKill(jobMgr *BackgroundJobManager) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		job := jobMgr.Get(id)
 		if job == nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+			writeJSON(w, http.StatusNotFound, map[string]string{jsonErrKey: "job not found"})
 			return
 		}
 		if job.IsDone() {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "job already completed"})
+			writeJSON(w, http.StatusConflict, map[string]string{jsonErrKey: "job already completed"})
 			return
 		}
 		if !jobMgr.Kill(id) {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "job already completed"})
+			writeJSON(w, http.StatusConflict, map[string]string{jsonErrKey: "job already completed"})
 			return
 		}
 		writeJSON(w, http.StatusOK, job.snapshot(true))

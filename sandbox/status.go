@@ -29,9 +29,12 @@ const (
 	memoryDelRemediation = "memory controller not delegated to pod cgroup; " +
 		"set runtimeClassName: cgroup-writable on the pod " +
 		"(or equivalent containerd cgroup_writable config)"
+	initLeafPathSuffix = "/init"
+	checkInitLeafName  = "init_leaf"
+	checkMemoryDelName = "memory_delegated"
+	checkK8sPodName    = "k8s_pod"
+	checkCgroupV2Name  = "cgroup_v2"
 )
-
-const initLeafPathSuffix = "/init"
 
 // Probe functions — package vars for test injection (match existing pattern
 // used by inK8s / cgroupAvailableStatus).
@@ -93,13 +96,13 @@ func CurrentStatus() Status {
 func checkK8sPodImpl() Check {
 	if inK8sPod() {
 		return Check{
-			Name:   "k8s_pod",
+			Name:   checkK8sPodName,
 			OK:     true,
 			Detail: "KUBERNETES_SERVICE_HOST set",
 		}
 	}
 	return Check{
-		Name:        "k8s_pod",
+		Name:        checkK8sPodName,
 		OK:          false,
 		Remediation: "temenos requires running inside a Kubernetes pod with cgroup v2",
 	}
@@ -110,13 +113,13 @@ func checkCgroupV2MountedImpl() Check {
 	_, err := os.Stat("/sys/fs/cgroup/cgroup.controllers")
 	if err == nil {
 		return Check{
-			Name:   "cgroup_v2",
+			Name:   checkCgroupV2Name,
 			OK:     true,
-			Detail: "/sys/fs/cgroup",
+			Detail: cgroupRoot,
 		}
 	}
 	return Check{
-		Name:        "cgroup_v2",
+		Name:        checkCgroupV2Name,
 		OK:          false,
 		Remediation: "mount cgroup v2 (systemd.unified_cgroup_hierarchy=1 or kernel cmdline equivalent)",
 	}
@@ -131,7 +134,7 @@ func checkCgroupV2MountedImpl() Check {
 func checkInitLeafImpl() Check {
 	if !checkK8sPod().OK {
 		return Check{
-			Name:        "init_leaf",
+			Name:        checkInitLeafName,
 			OK:          false,
 			Detail:      "not running in a Kubernetes pod (KUBERNETES_SERVICE_HOST not set)",
 			Remediation: initLeafRemediation,
@@ -141,7 +144,7 @@ func checkInitLeafImpl() Check {
 	path, err := readProc1CgroupPathReader()
 	if err != nil {
 		return Check{
-			Name:        "init_leaf",
+			Name:        checkInitLeafName,
 			OK:          false,
 			Detail:      err.Error(),
 			Remediation: initLeafRemediation,
@@ -150,13 +153,13 @@ func checkInitLeafImpl() Check {
 
 	if strings.HasSuffix(path, initLeafPathSuffix) || path == initLeafPathSuffix {
 		return Check{
-			Name:   "init_leaf",
+			Name:   checkInitLeafName,
 			OK:     true,
 			Detail: fmt.Sprintf("PID 1 cgroup: %s", path),
 		}
 	}
 	return Check{
-		Name:        "init_leaf",
+		Name:        checkInitLeafName,
 		OK:          false,
 		Detail:      fmt.Sprintf("PID 1 cgroup: %s (does not end in /init)", path),
 		Remediation: initLeafRemediation,
@@ -172,7 +175,7 @@ func checkInitLeafImpl() Check {
 func checkMemoryDelegatedImpl() Check {
 	if !checkK8sPod().OK {
 		return Check{
-			Name:        "memory_delegated",
+			Name:        checkMemoryDelName,
 			OK:          false,
 			Detail:      "not running in a Kubernetes pod (KUBERNETES_SERVICE_HOST not set)",
 			Remediation: memoryDelRemediation,
@@ -182,7 +185,7 @@ func checkMemoryDelegatedImpl() Check {
 	path, err := readProc1CgroupPathReader()
 	if err != nil {
 		return Check{
-			Name:        "memory_delegated",
+			Name:        checkMemoryDelName,
 			OK:          false,
 			Detail:      err.Error(),
 			Remediation: memoryDelRemediation,
@@ -193,11 +196,11 @@ func checkMemoryDelegatedImpl() Check {
 	// If no /init suffix, parent is the same as path.
 	parent := strings.TrimSuffix(path, initLeafPathSuffix)
 
-	subtreeCtrlPath := fmt.Sprintf("/sys/fs/cgroup%s/cgroup.subtree_control", parent)
+	subtreeCtrlPath := fmt.Sprintf("%s%s/cgroup.subtree_control", cgroupRoot, parent)
 	content, err := os.ReadFile(subtreeCtrlPath)
 	if err != nil {
 		return Check{
-			Name:        "memory_delegated",
+			Name:        checkMemoryDelName,
 			OK:          false,
 			Detail:      fmt.Sprintf("cannot read %s: %v", subtreeCtrlPath, err),
 			Remediation: memoryDelRemediation,
@@ -206,13 +209,13 @@ func checkMemoryDelegatedImpl() Check {
 
 	if strings.Contains(string(content), "memory") {
 		return Check{
-			Name:   "memory_delegated",
+			Name:   checkMemoryDelName,
 			OK:     true,
 			Detail: fmt.Sprintf("memory in cgroup.subtree_control at %s", subtreeCtrlPath),
 		}
 	}
 	return Check{
-		Name:        "memory_delegated",
+		Name:        checkMemoryDelName,
 		OK:          false,
 		Detail:      fmt.Sprintf("memory not in cgroup.subtree_control at %s", subtreeCtrlPath),
 		Remediation: memoryDelRemediation,
