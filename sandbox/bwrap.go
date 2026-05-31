@@ -78,6 +78,7 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 		"--ro-bind", "/bin", "/bin",
 		"--tmpfs", "/tmp",
 		"--tmpfs", "/home/agent",
+		procArg, staticProc,
 		"--unshare-all",
 		"--share-net",
 		"--dev", "/dev",
