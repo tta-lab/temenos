@@ -22,6 +22,7 @@ var sessionKey = contextKey{}
 
 const (
 	defaultTimeout = sandbox.DefaultTimeoutSecs
+	jsonSchemaType = "type"
 )
 
 var tokenRegex = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -120,15 +121,15 @@ func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, 
 		Name:        "bash",
 		Description: "Execute a shell command in the sandboxed environment",
 		InputSchema: map[string]any{
-			"type": "object",
+			jsonSchemaType: "object",
 			"properties": map[string]any{
 				"command": map[string]any{
-					"type":        "string",
-					"description": "Shell command to execute",
+					jsonSchemaType: "string",
+					"description":  "Shell command to execute",
 				},
 				"timeout": map[string]any{
-					"type":        "integer",
-					"description": "Timeout in seconds (default: 120)",
+					jsonSchemaType: "integer",
+					"description":  "Timeout in seconds (default: 120)",
 				},
 			},
 			"required": []string{"command"},

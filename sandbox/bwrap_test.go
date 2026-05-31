@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	roBind  = "--ro-bind"
 	rwBind  = "--bind"
 	tmpPath = "/tmp"
 )
@@ -259,21 +258,21 @@ func TestBwrapSandbox_BuildArgs_MetadataOnlySkipped(t *testing.T) {
 	s := &BwrapSandbox{BwrapPath: "bwrap"}
 	cfg := &ExecConfig{
 		MountDirs: []Mount{
-			{Source: "/var", Target: "/var", ReadOnly: true},
+			{Source: "/tmp", Target: "/tmp", ReadOnly: true},
 			{Source: "/opt", Target: "/opt", MetadataOnly: true},
 		},
 	}
 
 	args := s.buildArgs("ls", cfg)
 
-	// /var should be bound read-only.
+	// /tmp should be bound read-only.
 	foundBind := false
 	for i, a := range args {
-		if a == roBind && i+2 < len(args) && args[i+1] == "/var" {
+		if a == roBind && i+2 < len(args) && args[i+1] == "/tmp" {
 			foundBind = true
 		}
 	}
-	assert.True(t, foundBind, "expected --ro-bind for /var")
+	assert.True(t, foundBind, "expected --ro-bind for /tmp")
 
 	// MetadataOnly mount /opt must NOT appear in args — seatbelt concept only.
 	for _, a := range args {

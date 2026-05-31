@@ -44,11 +44,18 @@ linters:
     lll:
       line-length: 120
 
+    goconst:
+      min-occurrences: 3
+      ignore-tests: true
+
   exclusions:
     generated: lax
     paths:
       - third_party$
       - builtin$
+    rules:
+      - linters: [goconst]
+        path: _test\.go$
 
 formatters:
   enable:

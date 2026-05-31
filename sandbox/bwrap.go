@@ -22,7 +22,14 @@ type BwrapSandbox struct {
 	MemoryLimitMB int // 0 = no limit
 }
 
-const bwrapNixStorePath = "/nix/store"
+const (
+	bwrapNixStorePath = "/nix/store"
+	roBind            = "--ro-bind"
+	procArg           = "--proc"
+	staticBin         = "/bin"
+	staticProc        = "/proc"
+	staticUsr         = "/usr"
+)
 
 var bwrapNixStoreStat = os.Stat
 
@@ -74,22 +81,23 @@ func (s *BwrapSandbox) IsAvailable() bool {
 
 func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 	args := []string{
-		"--ro-bind", "/usr", "/usr",
-		"--ro-bind", "/bin", "/bin",
+		roBind, staticUsr, staticUsr,
+		roBind, staticBin, staticBin,
+		procArg, staticProc,
 		"--tmpfs", "/tmp",
 		"--tmpfs", "/home/agent",
 		"--unshare-all",
 		"--share-net",
 		"--dev", "/dev",
-		"--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
-		"--ro-bind", "/etc/ssl/certs", "/etc/ssl/certs",
-		"--ro-bind", "/etc/hosts", "/etc/hosts",
+		roBind, "/etc/resolv.conf", "/etc/resolv.conf",
+		roBind, "/etc/ssl/certs", "/etc/ssl/certs",
+		roBind, "/etc/hosts", "/etc/hosts",
 		"--die-with-parent",
 	}
 
 	if runtime.GOOS == "linux" {
 		args = append(args,
-			"--ro-bind", "/lib", "/lib",
+			roBind, "/lib", "/lib",
 			"--symlink", "/usr/lib64", "/lib64",
 		)
 	}
