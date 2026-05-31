@@ -148,4 +148,3 @@ func parseListenAddr(addr string) (network, listenAddr string) {
 	}
 	return "tcp", addr
 }
-

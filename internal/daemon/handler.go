@@ -78,13 +78,10 @@ func validatePath(p string) error {
 // (e.g. git rev-parse --path-format=absolute walks up the tree) without granting broader
 // access. Ancestors are appended AFTER explicit mounts to preserve mounts[0].Source as
 // the working directory in buildExecConfig. Root (/) is excluded.
-func buildMounts(baseline []sandbox.Mount, paths []AllowedPath, extraMounts ...sandbox.Mount) ([]sandbox.Mount, error) {
+func buildMounts(baseline []sandbox.Mount, paths []AllowedPath) ([]sandbox.Mount, error) {
 	// Start with baseline mounts (from config).
 	mounts := make([]sandbox.Mount, len(baseline))
 	copy(mounts, baseline)
-
-	// Append any extra mounts (e.g. job socket directory).
-	mounts = append(mounts, extraMounts...)
 
 	// Append mounts from the request AllowedPaths.
 	for _, ap := range paths {

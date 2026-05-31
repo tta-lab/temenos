@@ -160,4 +160,3 @@ func waitAndShutdown(
 	}
 	return mcpSrv.Shutdown(ctx)
 }
-
