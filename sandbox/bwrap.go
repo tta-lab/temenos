@@ -80,11 +80,25 @@ func (s *BwrapSandbox) IsAvailable() bool {
 }
 
 func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
+	// bwrap flags reference:
+	// https://manpages.debian.org/bookworm/bubblewrap/bwrap.1.en.html
+	//
+	// The static mounts below create the minimum runtime view:
+	//   - --ro-bind /usr, /bin, /lib: expose trusted system tools and shared libs read-only.
+	//   - --tmpfs /tmp and /home/agent: give tools writable scratch space without host writes.
+	//   - --proc /proc: mount a fresh procfs so /proc/self/exe works without exposing host /proc.
+	//   - --unshare-all: isolate user, ipc, pid, network, uts, and cgroup namespaces where possible.
+	//   - --share-net: intentionally keep host network access after --unshare-all.
+	//   - --dev /dev: create a minimal device filesystem for stdio, null, random, etc.
+	//   - --ro-bind resolv.conf, certs, hosts: make DNS and TLS work with shared networking.
+	//   - --die-with-parent: kill sandboxed processes if the daemon-side bwrap parent dies.
+	//   - --symlink /usr/lib64 /lib64: support distributions where /lib64 points into /usr.
 	args := []string{
 		roBind, staticUsr, staticUsr,
 		roBind, staticBin, staticBin,
 		"--tmpfs", "/tmp",
 		"--tmpfs", "/home/agent",
+		procArg, staticProc,
 		"--unshare-all",
 		"--share-net",
 		"--dev", "/dev",
