@@ -32,6 +32,8 @@ const (
 	initLeafPathSuffix = "/init"
 	checkInitLeafName  = "init_leaf"
 	checkMemoryDelName = "memory_delegated"
+	checkK8sPodName    = "k8s_pod"
+	checkCgroupV2Name  = "cgroup_v2"
 )
 
 // Probe functions — package vars for test injection (match existing pattern
@@ -94,13 +96,13 @@ func CurrentStatus() Status {
 func checkK8sPodImpl() Check {
 	if inK8sPod() {
 		return Check{
-			Name:   "k8s_pod",
+			Name:   checkK8sPodName,
 			OK:     true,
 			Detail: "KUBERNETES_SERVICE_HOST set",
 		}
 	}
 	return Check{
-		Name:        "k8s_pod",
+		Name:        checkK8sPodName,
 		OK:          false,
 		Remediation: "temenos requires running inside a Kubernetes pod with cgroup v2",
 	}
@@ -111,13 +113,13 @@ func checkCgroupV2MountedImpl() Check {
 	_, err := os.Stat("/sys/fs/cgroup/cgroup.controllers")
 	if err == nil {
 		return Check{
-			Name:   "cgroup_v2",
+			Name:   checkCgroupV2Name,
 			OK:     true,
-			Detail: "/sys/fs/cgroup",
+			Detail: cgroupRoot,
 		}
 	}
 	return Check{
-		Name:        "cgroup_v2",
+		Name:        checkCgroupV2Name,
 		OK:          false,
 		Remediation: "mount cgroup v2 (systemd.unified_cgroup_hierarchy=1 or kernel cmdline equivalent)",
 	}
@@ -194,7 +196,7 @@ func checkMemoryDelegatedImpl() Check {
 	// If no /init suffix, parent is the same as path.
 	parent := strings.TrimSuffix(path, initLeafPathSuffix)
 
-	subtreeCtrlPath := fmt.Sprintf("/sys/fs/cgroup%s/cgroup.subtree_control", parent)
+	subtreeCtrlPath := fmt.Sprintf("%s%s/cgroup.subtree_control", cgroupRoot, parent)
 	content, err := os.ReadFile(subtreeCtrlPath)
 	if err != nil {
 		return Check{
