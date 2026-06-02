@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -158,7 +157,7 @@ func TestTruncateToken_Empty(t *testing.T) {
 // TestBaselineMountsInHandler verifies the mount-building logic:
 // AllowRead → ro, AllowWrite → rw, session.WritePaths → rw appended on top.
 func TestBaselineMountsInHandler(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &sandbox.Config{
 		AllowRead:  []string{"/read-only-dir"},
 		AllowWrite: []string{"/read-write-dir"},
 	}
@@ -193,7 +192,7 @@ func TestBaselineMountsInHandler(t *testing.T) {
 // TestBaselineMountsInHandler_EmptyConfig verifies that an empty config
 // returns no mounts.
 func TestBaselineMountsInHandler_EmptyConfig(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &sandbox.Config{
 		AllowRead:  nil,
 		AllowWrite: nil,
 	}
@@ -204,7 +203,7 @@ func TestBaselineMountsInHandler_EmptyConfig(t *testing.T) {
 // TestBaselineMountsInHandler_ReadOnlyOnly verifies that a config with
 // only AllowRead produces only read-only mounts.
 func TestBaselineMountsInHandler_ReadOnlyOnly(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &sandbox.Config{
 		AllowRead: []string{"/only-read"},
 	}
 	mounts := cfg.BaselineMounts()
@@ -216,7 +215,7 @@ func TestBaselineMountsInHandler_ReadOnlyOnly(t *testing.T) {
 // TestBaselineMountsInHandler_WriteOnly verifies that a config with
 // only AllowWrite produces only read-write mounts.
 func TestBaselineMountsInHandler_WriteOnly(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &sandbox.Config{
 		AllowWrite: []string{"/only-write"},
 	}
 	mounts := cfg.BaselineMounts()
@@ -245,7 +244,7 @@ func TestTruncateToken_NineChars(t *testing.T) {
 // TestNewMCPHandler_ReturnsHandler verifies that NewMCPHandler returns
 // a non-nil http.Handler without panicking.
 func TestNewMCPHandler_ReturnsHandler(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &sandbox.Config{}
 	store := makeStore(t)
 	sbx := sandbox.New(sandbox.Options{AllowUnsandboxed: true})
 
@@ -256,7 +255,7 @@ func TestNewMCPHandler_ReturnsHandler(t *testing.T) {
 // TestBuildExecConfig_WritePaths_MountedReadWrite verifies that session WritePaths
 // are mounted as writable.
 func TestBuildExecConfig_WritePaths_MountedReadWrite(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &sandbox.Config{}
 	sess := &session.Session{
 		WritePaths: []string{"/session-write"},
 	}
@@ -276,7 +275,7 @@ func TestBuildExecConfig_WritePaths_MountedReadWrite(t *testing.T) {
 // TestBuildExecConfig_ReadPaths_MountedReadOnly verifies that session ReadPaths
 // are mounted as read-only.
 func TestBuildExecConfig_ReadPaths_MountedReadOnly(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &sandbox.Config{}
 	sess := &session.Session{
 		ReadPaths: []string{"/session-read"},
 	}
@@ -296,7 +295,7 @@ func TestBuildExecConfig_ReadPaths_MountedReadOnly(t *testing.T) {
 // TestBuildExecConfig_WriteAndReadPaths verifies that a session with both
 // WritePaths and ReadPaths gets the correct mount modes for each.
 func TestBuildExecConfig_WriteAndReadPaths(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &sandbox.Config{}
 	sess := &session.Session{
 		WritePaths: []string{"/session-write"},
 		ReadPaths:  []string{"/session-read"},
@@ -320,20 +319,20 @@ func TestBuildExecConfig_WriteAndReadPaths(t *testing.T) {
 }
 
 func TestBuildExecConfig_NoSessionNoWritePaths_FallsBackToTempDir(t *testing.T) {
-	cfg := &config.Config{} // no AllowWrite
+	cfg := &sandbox.Config{} // no AllowWrite
 	execCfg, _ := buildExecConfig(cfg, nil)
 	assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
 }
 
 func TestBuildExecConfig_NoSessionWritePaths_UsesConfigAllowWrite(t *testing.T) {
-	cfg := &config.Config{AllowWrite: []string{"/config-write"}}
+	cfg := &sandbox.Config{AllowWrite: []string{"/config-write"}}
 	sess := &session.Session{} // no WritePaths
 	execCfg, _ := buildExecConfig(cfg, sess)
 	assert.Equal(t, "/config-write", execCfg.WorkingDir)
 }
 
 func TestBuildExecConfig_WithWritePaths_UsesFirstWritePath(t *testing.T) {
-	cfg := &config.Config{AllowWrite: []string{"/config-write"}}
+	cfg := &sandbox.Config{AllowWrite: []string{"/config-write"}}
 	sess := &session.Session{WritePaths: []string{"/session-write"}}
 	execCfg, _ := buildExecConfig(cfg, sess)
 	assert.Equal(t, "/session-write", execCfg.WorkingDir)
@@ -344,14 +343,14 @@ func TestBuildExecConfig_WithWritePaths_UsesFirstWritePath(t *testing.T) {
 // for the working directory.
 func TestBuildExecConfig_ReadPathsOnly_FallsBackToConfigOrTemp(t *testing.T) {
 	t.Run("falls back to config AllowWrite", func(t *testing.T) {
-		cfg := &config.Config{AllowWrite: []string{"/config-write"}}
+		cfg := &sandbox.Config{AllowWrite: []string{"/config-write"}}
 		sess := &session.Session{ReadPaths: []string{"/session-read"}}
 		execCfg, _ := buildExecConfig(cfg, sess)
 		assert.Equal(t, "/config-write", execCfg.WorkingDir)
 	})
 
 	t.Run("falls back to TempDir when no AllowWrite", func(t *testing.T) {
-		cfg := &config.Config{}
+		cfg := &sandbox.Config{}
 		sess := &session.Session{ReadPaths: []string{"/session-read"}}
 		execCfg, _ := buildExecConfig(cfg, sess)
 		assert.Equal(t, os.TempDir(), execCfg.WorkingDir)
@@ -361,7 +360,7 @@ func TestBuildExecConfig_ReadPathsOnly_FallsBackToConfigOrTemp(t *testing.T) {
 // TestBuildExecConfig_SessionEnv_PassedToExecConfig verifies session Env vars
 // are passed through to the ExecConfig when allowed by AllowEnv.
 func TestBuildExecConfig_SessionEnv_PassedToExecConfig(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{"FOO"}}
+	cfg := &sandbox.Config{AllowEnv: []string{"FOO"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar"}}
 
 	execCfg, _ := buildExecConfig(cfg, sess)
@@ -373,7 +372,7 @@ func TestBuildExecConfig_SessionEnv_PassedToExecConfig(t *testing.T) {
 // TestBuildExecConfig_NilSessionEnv_EmptyExecEnv verifies that a session with
 // no Env produces an empty/nil ExecConfig.Env.
 func TestBuildExecConfig_NilSessionEnv_EmptyExecEnv(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &sandbox.Config{}
 	sess := &session.Session{Agent: "test"}
 
 	execCfg, _ := buildExecConfig(cfg, sess)
@@ -384,7 +383,7 @@ func TestBuildExecConfig_NilSessionEnv_EmptyExecEnv(t *testing.T) {
 // TestBuildExecConfig_SessionEnv_MultipleVars verifies multiple env vars are all present
 // when allowed by AllowEnv.
 func TestBuildExecConfig_SessionEnv_MultipleVars(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{"FOO", "BAZ"}}
+	cfg := &sandbox.Config{AllowEnv: []string{"FOO", "BAZ"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "bar", "BAZ": "qux"}}
 
 	execCfg, _ := buildExecConfig(cfg, sess)
@@ -396,7 +395,7 @@ func TestBuildExecConfig_SessionEnv_MultipleVars(t *testing.T) {
 }
 
 func TestBuildExecConfig_FiltersDisallowedSessionEnv(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{"TTAL_*"}}
+	cfg := &sandbox.Config{AllowEnv: []string{"TTAL_*"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"TTAL_JOB_ID": "a", "BAD": "b"}}
 
 	execCfg, _ := buildExecConfig(cfg, sess)
@@ -409,7 +408,7 @@ func TestBuildExecConfig_FiltersDisallowedSessionEnv(t *testing.T) {
 }
 
 func TestBuildExecConfig_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
-	cfg := &config.Config{AllowEnv: nil}
+	cfg := &sandbox.Config{AllowEnv: nil}
 	sess := &session.Session{Agent: "test", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
 	execCfg, _ := buildExecConfig(cfg, sess)
@@ -434,7 +433,7 @@ func TestBuildExecConfig_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
 // FilterEnv stripped list into CommandResult.StrippedEnvKeys (visibility for
 // caller that a key was silently dropped).
 func TestBashHandler_PopulatesStrippedEnvKeys(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{"FOO"}}
+	cfg := &sandbox.Config{AllowEnv: []string{"FOO"}}
 	sess := &session.Session{Agent: "test", Env: map[string]string{
 		"FOO":   "1",
 		"DROP1": "x",

@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -21,7 +20,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *session.Store) {
 
 	store := session.NewStore(t.TempDir() + "/sessions.json")
 
-	cfg := &config.Config{
+	cfg := &sandbox.Config{
 		AllowRead:  []string{"/tmp"},
 		AllowWrite: []string{"/tmp"},
 	}

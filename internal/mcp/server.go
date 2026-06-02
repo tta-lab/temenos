@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -53,7 +52,7 @@ func getSession(ctx context.Context) *session.Session {
 
 // NewMCPHandler creates an HTTP handler that wraps an MCP StreamableHTTPHandler
 // with token authentication middleware.
-func NewMCPHandler(cfg *config.Config, store *session.Store, sbx sandbox.Sandbox) http.Handler {
+func NewMCPHandler(cfg *sandbox.Config, store *session.Store, sbx sandbox.Sandbox) http.Handler {
 	getServer := func(req *http.Request) *mcp.Server {
 		ctx := req.Context()
 		sess := getSession(ctx)
@@ -116,7 +115,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 // registerBashTool registers the bash tool handler with the MCP server.
-func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session) {
+func registerBashTool(srv *mcp.Server, cfg *sandbox.Config, sbx sandbox.Sandbox, sess *session.Session) {
 	bashTool := &mcp.Tool{
 		Name:        "bash",
 		Description: "Execute a shell command in the sandboxed environment",
@@ -146,7 +145,7 @@ func registerBashTool(srv *mcp.Server, cfg *config.Config, sbx sandbox.Sandbox, 
 // passed to the sandbox.
 //
 //nolint:gocyclo
-func buildExecConfig(cfg *config.Config, sess *session.Session) (*sandbox.ExecConfig, []string) {
+func buildExecConfig(cfg *sandbox.Config, sess *session.Session) (*sandbox.ExecConfig, []string) {
 	mounts := cfg.BaselineMounts()
 	if sess != nil {
 		for _, p := range sess.WritePaths {
@@ -181,7 +180,7 @@ func buildExecConfig(cfg *config.Config, sess *session.Session) (*sandbox.ExecCo
 }
 
 // bashHandler returns the tool handler for the bash tool.
-func bashHandler(cfg *config.Config, sbx sandbox.Sandbox, sess *session.Session) mcp.ToolHandlerFor[bashInput, any] {
+func bashHandler(cfg *sandbox.Config, sbx sandbox.Sandbox, sess *session.Session) mcp.ToolHandlerFor[bashInput, any] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input bashInput) (*mcp.CallToolResult, any, error) {
 		if input.Command == "" {
 			return &mcp.CallToolResult{
