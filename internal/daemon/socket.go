@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -27,7 +26,6 @@ type httpHandlers struct {
 	cfg    *sandbox.Config
 	run    func(ctx context.Context, req RunRequest) (*RunResponse, error)
 	health func() HealthResponse
-	store  *session.Store
 	jobMgr *BackgroundJobManager
 }
 
@@ -37,11 +35,6 @@ func newRouter(h httpHandlers) *chi.Mux {
 	r.Post("/run", handleHTTPRunValidating(h))
 
 	r.Get("/health", handleHTTPHealth(h))
-	if h.store != nil {
-		r.Post("/session/register", handleHTTPSessionRegister(h.store))
-		r.Delete("/session/{token}", handleHTTPSessionDelete(h.store))
-		r.Get("/session/list", handleHTTPSessionList(h.store))
-	}
 	if h.jobMgr != nil {
 		r.Get("/jobs", handleHTTPJobList(h.jobMgr))
 		r.Get("/jobs/{id}", handleHTTPJobGet(h.jobMgr))
@@ -97,34 +90,6 @@ func listenHTTP(addr string, h httpHandlers) (*http.Server, <-chan error, error)
 
 	srv := &http.Server{
 		Handler:      newRouter(h),
-		ReadTimeout:  serverReadTimeout,
-		WriteTimeout: serverWriteTimeout,
-	}
-
-	serveErr := make(chan error, 1)
-	go func() {
-		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
-			serveErr <- err
-		}
-		close(serveErr)
-	}()
-	return srv, serveErr, nil
-}
-
-// listenTCP starts an HTTP server on a TCP address.
-// Unlike listenHTTP, this function does not handle unix sockets and
-// does not apply special permissions (e.g. chmod 0o600).
-//
-// Security: Always bind to localhost (127.0.0.1) or a loopback interface.
-// Do not bind to 0.0.0.0 without network-level access control.
-func listenTCP(addr string, handler http.Handler) (*http.Server, <-chan error, error) {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	srv := &http.Server{
-		Handler:      handler,
 		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: serverWriteTimeout,
 	}

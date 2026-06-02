@@ -95,10 +95,9 @@ Temenos filters environment variables passed to sandboxed processes through
 the `allow_env` config list — the single source of truth for what env keys
 may enter the sandbox.
 
-### Two Entry Points, One Filter
+### Single Entry Point
 
-Both `POST /run` `env` field AND session-registered `env` (MCP bash tool)
-pass through `cfg.AllowEnv` before reaching the sandbox process.
+`POST /run` `env` field passes through `cfg.AllowEnv` before reaching the sandbox process.
 
 ### Glob Semantics
 
@@ -130,8 +129,7 @@ and security-critical, so it belongs in operator config, not per-call.
 ### Stripped Keys Behavior
 
 Values are silently absent in the sandbox; daemon logs stripped key names
-at `slog.Debug` level with the caller context (`agent` for sessions). The
-daemon response and MCP `CommandResult` both include `stripped_env_keys`
+at `slog.Debug` level. The daemon response includes `stripped_env_keys`
 when non-empty, so callers can observe what was dropped without polling
 logs.
 

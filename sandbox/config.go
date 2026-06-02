@@ -20,7 +20,6 @@ type Config struct {
 	AllowWrite          []string `toml:"allow_write"`
 	AllowEnv            []string `toml:"allow_env"`
 	AutoBackgroundAfter int      `toml:"auto_background_after"` // seconds, default: 30
-	MCPPort             int      `toml:"mcp_port"`              // default: 9783
 	SocketPath          string   `toml:"socket_path"`           // default: ~/.temenos/daemon.sock
 }
 
@@ -58,7 +57,6 @@ func defaultConfig() (*Config, error) {
 	}
 	return &Config{
 		AutoBackgroundAfter: DefaultAutoBackgroundAfter,
-		MCPPort:             9783,
 		AllowWrite:          nil,
 		SocketPath:          socketPath,
 	}, nil
@@ -86,7 +84,7 @@ func LoadConfig(path string) (*Config, Sandbox, error) {
 // Load reads the configuration from the given path.
 // If path is empty, DefaultConfigPath() is used.
 // If the file does not exist, a default Config is returned.
-// Defaults: MCPPort=9783, SocketPath=~/.temenos/daemon.sock
+// Default: SocketPath=~/.temenos/daemon.sock
 func Load(path string) (*Config, error) {
 	if path == "" {
 		var err error
@@ -140,11 +138,6 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() error {
-	if c.MCPPort == 0 {
-		c.MCPPort = 9783
-	} else if c.MCPPort < 1 || c.MCPPort > 65535 {
-		return fmt.Errorf("mcp_port %d is out of range (1-65535)", c.MCPPort)
-	}
 	if c.AutoBackgroundAfter == 0 {
 		c.AutoBackgroundAfter = DefaultAutoBackgroundAfter
 	}
