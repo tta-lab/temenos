@@ -354,3 +354,36 @@ func TestHandleRun_EmptySliceAllowEnv_BaselineStillPasses(t *testing.T) {
 	assert.True(t, hasUser, "USER should pass via baseline")
 	assert.True(t, hasHome, "HOME should pass via baseline")
 }
+
+func TestValidateEnv_InvalidEnvValue(t *testing.T) {
+	err := validateEnv(map[string]string{"FOO": "value\x00nul"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NUL")
+
+	err = validateEnv(map[string]string{"BAR": "line\nbreak"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "LF")
+
+	err = validateEnv(map[string]string{"BAZ": "carriage\rreturn"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CR")
+}
+
+func TestValidateEnv_ValidValues(t *testing.T) {
+	err := validateEnv(map[string]string{"FOO": "bar", "BAZ": "qux"})
+	require.NoError(t, err)
+}
+
+func TestIsValidEnvName_RejectsLeadingDigit(t *testing.T) {
+	assert.False(t, isValidEnvName("0ABC"))
+}
+
+func TestIsValidEnvName_RejectsGlobChars(t *testing.T) {
+	assert.False(t, isValidEnvName("FOO*"))
+	assert.False(t, isValidEnvName("BAR?"))
+}
+
+func TestIsValidEnvName_LowercaseAccepted(t *testing.T) {
+	assert.True(t, isValidEnvName("my_var"))
+	assert.True(t, isValidEnvName("PATH"))
+}
