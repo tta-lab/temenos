@@ -12,7 +12,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -47,7 +46,7 @@ func (d *deadlineSandbox) IsAvailable() bool { return true }
 
 func TestHandleRun_SetsWorkingDir(t *testing.T) {
 	sbx := &captureSandbox{}
-	cfg := &config.Config{AllowRead: []string{"/baseline/read"}}
+	cfg := &sandbox.Config{AllowRead: []string{"/baseline/read"}}
 	req := RunRequest{
 		Command:      "pwd",
 		AllowedPaths: []AllowedPath{{Path: "/Users/neil/project", ReadOnly: true}},
@@ -61,7 +60,7 @@ func TestHandleRun_SetsWorkingDir(t *testing.T) {
 func TestHandleRun_NoAllowedPaths_FallsBackToTempDir(t *testing.T) {
 	sbx := &captureSandbox{}
 	req := RunRequest{Command: "echo hi"}
-	_, err := handleRun(t.Context(), &config.Config{}, sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	assert.Equal(t, os.TempDir(), sbx.lastCfg.WorkingDir)
@@ -71,7 +70,7 @@ func TestHandleRun_DefaultsRunTimeoutToTwentyMinutes(t *testing.T) {
 	sbx := &deadlineSandbox{deadline: make(chan deadlineObservation, 1)}
 	start := time.Now()
 
-	_, err := handleRun(t.Context(), &config.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
+	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
 		Command: "echo hi",
 	})
 	require.NoError(t, err)
@@ -85,7 +84,7 @@ func TestHandleRun_UsesRequestTimeout(t *testing.T) {
 	sbx := &deadlineSandbox{deadline: make(chan deadlineObservation, 1)}
 	start := time.Now()
 
-	_, err := handleRun(t.Context(), &config.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
+	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
 		Command: "echo hi",
 		Timeout: 30,
 	})
@@ -101,7 +100,7 @@ func TestHandleRun_BackgroundJobOutlivesRequestContext(t *testing.T) {
 	sbx := &mockSandbox{delay: 10 * time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	resp, err := handleRun(ctx, &config.Config{AutoBackgroundAfter: 1}, sbx, mgr, RunRequest{
+	resp, err := handleRun(ctx, &sandbox.Config{AutoBackgroundAfter: 1}, sbx, mgr, RunRequest{
 		Command: "sleep 10",
 		Timeout: 30,
 	})
@@ -124,7 +123,7 @@ func TestHTTPRun_IgnoresAutoBackgroundAfterRequestField(t *testing.T) {
 	sbx := &mockSandbox{delay: 1500 * time.Millisecond}
 	handler := handleHTTPRunValidating(httpHandlers{
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
-			return handleRun(ctx, &config.Config{AutoBackgroundAfter: 1}, sbx, mgr, req)
+			return handleRun(ctx, &sandbox.Config{AutoBackgroundAfter: 1}, sbx, mgr, req)
 		},
 	})
 
@@ -210,7 +209,7 @@ func TestBuildMounts_AncestorDeduplicatesExistingMounts(t *testing.T) {
 
 func TestBuildMounts_WorkingDirPreservedWithAncestors(t *testing.T) {
 	sbx := &captureSandbox{}
-	cfg := &config.Config{AllowWrite: []string{"/baseline/write"}}
+	cfg := &sandbox.Config{AllowWrite: []string{"/baseline/write"}}
 	req := RunRequest{
 		Command: "pwd",
 		AllowedPaths: []AllowedPath{
@@ -254,7 +253,7 @@ func TestBuildMounts_BaselinePrecedesRequestPaths(t *testing.T) {
 }
 
 func TestHandleRun_FiltersDisallowedEnvKeys(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{"FOO"}}
+	cfg := &sandbox.Config{AllowEnv: []string{"FOO"}}
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "BAR": "2"}}
 
@@ -272,7 +271,7 @@ func TestHandleRun_FiltersDisallowedEnvKeys(t *testing.T) {
 }
 
 func TestHandleRun_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
-	cfg := &config.Config{AllowEnv: nil}
+	cfg := &sandbox.Config{AllowEnv: nil}
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
@@ -295,7 +294,7 @@ func TestHandleRun_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
 }
 
 func TestHandleRun_GlobAllowEnv_RetainsMatching(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{"TTAL_*"}}
+	cfg := &sandbox.Config{AllowEnv: []string{"TTAL_*"}}
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"TTAL_JOB_ID": "abc", "OTHER": "xyz"}}
 
@@ -313,7 +312,7 @@ func TestHandleRun_GlobAllowEnv_RetainsMatching(t *testing.T) {
 }
 
 func TestHandleRun_NilEnv_DoesNotCrash(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{"FOO"}}
+	cfg := &sandbox.Config{AllowEnv: []string{"FOO"}}
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo"} // Env field not set
 
@@ -324,7 +323,7 @@ func TestHandleRun_NilEnv_DoesNotCrash(t *testing.T) {
 }
 
 func TestHandleRun_InvalidEnvKey_ReturnsError(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &sandbox.Config{}
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"invalid-key": "value"}}
 
@@ -334,7 +333,7 @@ func TestHandleRun_InvalidEnvKey_ReturnsError(t *testing.T) {
 }
 
 func TestHandleRun_EmptySliceAllowEnv_BaselineStillPasses(t *testing.T) {
-	cfg := &config.Config{AllowEnv: []string{}}
+	cfg := &sandbox.Config{AllowEnv: []string{}}
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 

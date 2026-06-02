@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -25,7 +24,7 @@ const (
 )
 
 type httpHandlers struct {
-	cfg    *config.Config
+	cfg    *sandbox.Config
 	run    func(ctx context.Context, req RunRequest) (*RunResponse, error)
 	health func() HealthResponse
 	store  *session.Store

@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tta-lab/temenos/internal/config"
 	temenosmcp "github.com/tta-lab/temenos/internal/mcp"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
@@ -92,10 +91,10 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 	store.PruneStale()
 
 	// Load config for baseline mounts.
-	cfg, err := config.Load("")
+	cfg, err := sandbox.Load("")
 	if err != nil {
 		slog.Error("failed to load config — no baseline mounts will be applied", "err", err)
-		cfg = &config.Config{MCPPort: 9783}
+		cfg = &sandbox.Config{MCPPort: 9783}
 	}
 
 	// Initialize background job manager.

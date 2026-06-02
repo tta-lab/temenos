@@ -1,4 +1,4 @@
-package config
+package sandbox
 
 import (
 	"path/filepath"
@@ -93,13 +93,13 @@ func TestFilterEnv_BaselinePassesWithoutUserConfig(t *testing.T) {
 	assert.Equal(t, []string{"GITHUB_TOKEN", "MY_VAR"}, stripped)
 }
 
-// Rationale: see BaselineAllowEnv doc in baseline.go. Removing either key
+// Rationale: see BaselineAllowEnv doc in config.go. Removing either key
 // silently degrades ttal CLI ops paths (session prefixing, notifications,
 // reviewer-window cleanup, pipeline attribution).
 func TestBaselineAllowEnv_IncludesTmuxSessionKeys(t *testing.T) {
 	for _, required := range []string{"TMUX", "TMUX_PANE"} {
 		assert.Truef(t, slices.Contains(BaselineAllowEnv, required),
-			"%s must be in BaselineAllowEnv (see baseline.go rationale)", required)
+			"%s must be in BaselineAllowEnv (see config.go rationale)", required)
 	}
 }
 

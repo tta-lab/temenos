@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tta-lab/temenos/internal/config"
 	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
@@ -119,12 +118,12 @@ const (
 )
 
 func handleRun(
-	ctx context.Context, cfg *config.Config, sbx sandbox.Sandbox,
+	ctx context.Context, cfg *sandbox.Config, sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager, req RunRequest,
 ) (*RunResponse, error) {
 	autoBackground := cfg.AutoBackgroundAfter
 	if autoBackground == 0 {
-		autoBackground = config.DefaultAutoBackgroundAfter
+		autoBackground = sandbox.DefaultAutoBackgroundAfter
 	}
 
 	runTimeout := defaultRunTimeout
@@ -148,7 +147,7 @@ func handleRunAutoBackground(
 	requestCtx context.Context,
 	jobCtx context.Context,
 	jobDone context.CancelFunc,
-	cfg *config.Config,
+	cfg *sandbox.Config,
 	sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager,
 	req RunRequest,
