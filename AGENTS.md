@@ -31,18 +31,15 @@ Qlty config: `.qlty/qlty.toml`
 
 ## Architecture
 
-**Daemon** (`internal/daemon/`) — Dual-listener design:
+**Daemon** (`internal/daemon/`) — Single-listener design:
 - **Admin server** — HTTP on unix socket (`~/.temenos/daemon.sock`, override via `TEMENOS_SOCKET_PATH`). Admin socket has 0o600 filesystem permissions.
-- **MCP server** — HTTP on TCP `127.0.0.1:{MCPPort}` (default 9783). Binds to localhost only for security.
-
-Both listeners share the same sandbox instance and session store.
 
 Admin endpoints:
 - `POST /run` — execute a command in the sandbox with specified allowed paths, env vars, timeout
 - `GET /health` — platform/version info
-
-MCP endpoint:
-- `/mcp` — MCP Streamable HTTP endpoint for tool-based command execution (session token required via `X-Session-Token` header)
+- `GET /jobs` — list background jobs (optional `?status=` and `?caller_id=` filters)
+- `GET /jobs/{id}` — get background job status and output
+- `DELETE /jobs/{id}` — kill a running background job
 
 **Sandbox** (`sandbox/`) — Platform-dispatched via `sandbox.New(Options)` → `Sandbox` interface:
 - `SeatbeltSandbox` (macOS) — uses `/usr/bin/sandbox-exec` with embedded `.sbpl` policy templates. Seatbelt cannot remap paths (Source must equal Target on mounts).
@@ -64,4 +61,4 @@ Seatbelt policies are embedded via `//go:embed` from three `.sbpl` files in `san
 - Default `/run` execution timeout: 20 minutes
 - Version injected via `-ldflags` at build time (`cli.Version`)
 - `gocyclo` max complexity: 15, line length limit: 120
-- RunRequest.Env and session.Env both filter through Config.EffectiveAllowEnv() (BaselineAllowEnv + user allow_env, deduped, filepath.Match globs); baseline is unconditional, user config extends — never replaces — it
+- RunRequest.Env filters through Config.EffectiveAllowEnv() (BaselineAllowEnv + user allow_env, deduped, filepath.Match globs); baseline is unconditional, user config extends — never replaces — it

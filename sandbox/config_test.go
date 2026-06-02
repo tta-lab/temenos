@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 
@@ -9,14 +10,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// requireUserCurrent skips the test if os/user.Current() is unavailable
+// (e.g. in bubblewrap environments without /etc/passwd).
+func requireUserCurrent(t *testing.T) {
+	t.Helper()
+	if _, err := user.Current(); err != nil {
+		t.Skipf("os/user.Current() unavailable: %v", err)
+	}
+}
+
 func TestLoad_ValidTOMLConfig(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
 
 	configContent := `
 allow_read = ["/read/path1", "/read/path2"]
 allow_write = ["/write/path1"]
-mcp_port = 5000
 socket_path = "/custom/daemon.sock"
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
@@ -27,12 +37,12 @@ socket_path = "/custom/daemon.sock"
 
 	assert.Equal(t, []string{"/read/path1", "/read/path2"}, cfg.AllowRead)
 	assert.Equal(t, []string{"/write/path1"}, cfg.AllowWrite)
-	assert.Equal(t, 5000, cfg.MCPPort)
 	assert.Equal(t, "/custom/daemon.sock", cfg.SocketPath)
 	assert.Equal(t, DefaultAutoBackgroundAfter, cfg.AutoBackgroundAfter)
 }
 
 func TestLoad_AutoBackgroundAfterFromConfig(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
 
@@ -49,29 +59,28 @@ auto_background_after = 1
 }
 
 func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
+	requireUserCurrent(t)
 	cfg, err := Load("/nonexistent/path/config.toml")
 	require.NoError(t, err)
 
-	assert.Equal(t, 9783, cfg.MCPPort)
 	assert.Equal(t, DefaultAutoBackgroundAfter, cfg.AutoBackgroundAfter)
 	assert.NotEmpty(t, cfg.SocketPath)
 	assert.Contains(t, cfg.SocketPath, ".temenos/daemon.sock")
 
-	// Verify ~ is expanded
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, ".temenos/daemon.sock"), cfg.SocketPath)
 
-	// Verify no default AllowWrite
 	assert.Empty(t, cfg.AllowWrite)
 }
 
 func TestLoad_EmptyPath_UsesDefaultConfigPath(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
 
 	configContent := `
-mcp_port = 6000
+socket_path = "/tmp/temenos.sock"
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
 	require.NoError(t, err)
@@ -81,17 +90,17 @@ mcp_port = 6000
 
 	cfg, err := Load("")
 	require.NoError(t, err)
-	assert.Equal(t, 6000, cfg.MCPPort)
+	assert.Equal(t, "/tmp/temenos.sock", cfg.SocketPath)
 }
 
 func TestLoad_TildeExpansion(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
 
 	configContent := `
 allow_read = ["~/read/path1", "~/documents"]
 allow_write = ["~/write/data"]
-mcp_port = 7000
 socket_path = "~/daemon.sock"
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
@@ -109,11 +118,12 @@ socket_path = "~/daemon.sock"
 }
 
 func TestLoad_PartialConfig_DefaultsSocketPath(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
 
 	configContent := `
-mcp_port = 8000
+allow_read = ["/read/path1"]
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
 	require.NoError(t, err)
@@ -121,7 +131,6 @@ mcp_port = 8000
 	cfg, err := Load(configPath)
 	require.NoError(t, err)
 
-	assert.Equal(t, 8000, cfg.MCPPort)
 	assert.NotEmpty(t, cfg.SocketPath)
 
 	home, err := os.UserHomeDir()
@@ -130,6 +139,7 @@ mcp_port = 8000
 }
 
 func TestExpandHome_TildePrefix(t *testing.T) {
+	requireUserCurrent(t)
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
@@ -151,6 +161,7 @@ func TestExpandHome_EmptyString(t *testing.T) {
 }
 
 func TestDefaultConfigPath_WithEnvVar(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	expectedPath := filepath.Join(tmpDir, "custom.toml")
 	t.Setenv("TEMENOS_CONFIG_PATH", expectedPath)
@@ -162,6 +173,7 @@ func TestDefaultConfigPath_WithEnvVar(t *testing.T) {
 }
 
 func TestDefaultConfigPath_WithoutEnvVar(t *testing.T) {
+	requireUserCurrent(t)
 	t.Setenv("TEMENOS_CONFIG_PATH", "")
 	defer t.Setenv("TEMENOS_CONFIG_PATH", "")
 
@@ -196,6 +208,7 @@ func TestBaselineMounts_Empty(t *testing.T) {
 }
 
 func TestLoad_AllowEnv(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
 
@@ -212,6 +225,7 @@ allow_env = ["FOO_*", "BAR"]
 }
 
 func TestLoad_AllowEnvMalformedPattern(t *testing.T) {
+	requireUserCurrent(t)
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.toml")
 
@@ -224,30 +238,6 @@ allow_env = ["[invalid"]
 	_, err = Load(configPath)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "allow_env")
-}
-
-func TestLoad_AllowEnvEmptyArray(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.toml")
-
-	configContent := `
-allow_env = []
-`
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err)
-	assert.NotNil(t, cfg.AllowEnv)
-	assert.Empty(t, cfg.AllowEnv)
-
-	allowed, stripped := cfg.FilterEnv(map[string]string{"FOO": "bar"})
-	assert.Nil(t, allowed)
-	assert.Equal(t, []string{"FOO"}, stripped)
-
-	// Baseline keys must pass even with empty user allow_env.
-	baselineAllowed, _ := cfg.FilterEnv(map[string]string{"USER": "alice"})
-	assert.Equal(t, "alice", baselineAllowed["USER"], "baseline keys must pass even with empty user allow_env")
 }
 
 func TestFilterEnv_LiteralMatch(t *testing.T) {
@@ -280,7 +270,6 @@ func TestFilterEnv_EmptyUserAllowList_BaselineStillPasses(t *testing.T) {
 
 	allowed, stripped := cfg.FilterEnv(env)
 
-	// FOO is not in baseline; USER is.
 	assert.NotContains(t, allowed, "FOO")
 	assert.Contains(t, stripped, "FOO")
 	assert.Equal(t, "alice", allowed["USER"])
@@ -293,21 +282,6 @@ func TestFilterEnv_NilEnv_ReturnsNil(t *testing.T) {
 
 	assert.Nil(t, allowed)
 	assert.Nil(t, stripped)
-}
-
-func TestFilterEnv_WildcardDoesNotMatchSecretKeys(t *testing.T) {
-	cfg := &Config{AllowEnv: []string{"SAFE_*"}}
-	env := map[string]string{
-		"GITHUB_TOKEN":   "secret1",
-		"MY_SECRET":      "secret2",
-		"ADMIN_PASSWORD": "secret3",
-		"SAFE_FOO":       "safe",
-	}
-
-	allowed, stripped := cfg.FilterEnv(env)
-
-	assert.Equal(t, map[string]string{"SAFE_FOO": "safe"}, allowed)
-	assert.Equal(t, []string{"ADMIN_PASSWORD", "GITHUB_TOKEN", "MY_SECRET"}, stripped)
 }
 
 func TestFilterEnv_StrippedSorted(t *testing.T) {

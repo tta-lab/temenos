@@ -88,8 +88,6 @@ allow_env = [
 # Admin socket path.
 # socket_path = "~/.temenos/daemon.sock"
 
-# MCP port. The MCP server binds to 127.0.0.1 only.
-# mcp_port = 9783
 
 # Seconds to wait before long commands move to a background job.
 # auto_background_after = 30
@@ -105,7 +103,6 @@ Config keys:
 | `allow_write` | `[]string` | `[]` | Read-write paths mounted into every sandboxed command. `~` is expanded. |
 | `allow_env` | `[]string` | `[]` | Extends the built-in baseline env allow-list. Supports `filepath.Match` globs. |
 | `socket_path` | `string` | `~/.temenos/daemon.sock` | Admin HTTP unix socket path. `~` is expanded. |
-| `mcp_port` | `int` | `9783` | MCP Streamable HTTP port, bound to localhost. Must be `1..65535`. |
 | `auto_background_after` | `int` | `30` | Seconds before a still-running `/run` command becomes a background job. `0` means use the default. |
 
 ### Baseline allow_env
@@ -150,7 +147,7 @@ Response:
 }
 ```
 
-Keys in `env` not matching the effective allow_env (baseline + operator config) are silently stripped before execution. Stripped keys are logged at debug level and surfaced in `stripped_env_keys` in the response (MCP tool results include the same field in `CommandResult`).
+Keys in `env` not matching the effective allow_env (baseline + operator config) are silently stripped before execution. Stripped keys are logged at debug level and surfaced in `stripped_env_keys` in the response.
 
 ### `GET /health`
 

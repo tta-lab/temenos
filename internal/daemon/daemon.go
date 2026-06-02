@@ -11,8 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	temenosmcp "github.com/tta-lab/temenos/internal/mcp"
-	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -78,23 +76,11 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 	tracker := NewProcessTracker()
 	defer tracker.KillAll()
 
-	// Set up session store with persistence.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("temenos: cannot determine home directory: %w", err)
-	}
-	sessionsPath := filepath.Join(home, ".temenos", "sessions.json")
-	store := session.NewStore(sessionsPath)
-	if err := store.LoadFromDisk(); err != nil {
-		slog.Warn("failed to load sessions from disk", "path", sessionsPath, "err", err)
-	}
-	store.PruneStale()
-
 	// Load config for baseline mounts.
 	cfg, err := sandbox.Load("")
 	if err != nil {
 		slog.Error("failed to load config — no baseline mounts will be applied", "err", err)
-		cfg = &sandbox.Config{MCPPort: 9783}
+		cfg = &sandbox.Config{}
 	}
 
 	// Initialize background job manager.
@@ -106,17 +92,8 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 			return handleRun(ctx, cfg, sbx, jobMgr, req)
 		},
 		health: func() HealthResponse { return handleHealth(version) },
-		store:  store,
 		jobMgr: jobMgr,
 	})
-	if err != nil {
-		return err
-	}
-
-	// Create MCP handler and start TCP listener on localhost.
-	mcpHandler := temenosmcp.NewMCPHandler(cfg, store, sbx)
-	mcpAddr := fmt.Sprintf("127.0.0.1:%d", cfg.MCPPort)
-	mcpSrv, mcpServeErr, err := listenTCP(mcpAddr, mcpHandler)
 	if err != nil {
 		return err
 	}
@@ -124,20 +101,19 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 	slog.Info("temenos daemon started",
 		"admin", resolvedAddr,
 		"admin_network", network,
-		"mcp", mcpAddr,
 	)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
-	return waitAndShutdown(sig, serveErr, mcpServeErr, srv, mcpSrv)
+	return waitAndShutdown(sig, serveErr, srv)
 }
 
-// waitAndShutdown blocks until a signal or server error, then shuts down all servers.
+// waitAndShutdown blocks until a signal or server error, then shuts down the server.
 func waitAndShutdown(
 	sig <-chan os.Signal,
-	serveErr, mcpServeErr <-chan error,
-	srv, mcpSrv *http.Server,
+	serveErr <-chan error,
+	srv *http.Server,
 ) error {
 	select {
 	case <-sig:
@@ -146,10 +122,6 @@ func waitAndShutdown(
 		if err != nil {
 			return fmt.Errorf("temenos: admin server failed: %w", err)
 		}
-	case err := <-mcpServeErr:
-		if err != nil {
-			return fmt.Errorf("temenos: MCP server failed: %w", err)
-		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -157,5 +129,5 @@ func waitAndShutdown(
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Warn("admin server shutdown error", "err", err)
 	}
-	return mcpSrv.Shutdown(ctx)
+	return nil
 }

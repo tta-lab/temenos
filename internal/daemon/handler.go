@@ -10,10 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tta-lab/temenos/internal/session"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -112,6 +112,58 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 	return cfg
 }
 
+// isValidEnvName returns true if s is a valid POSIX env var name:
+// [a-zA-Z_][a-zA-Z0-9_]*. Leading digits and glob characters are rejected —
+// validateEnv validates literal env var names, not allow_env patterns.
+func isValidEnvName(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	// First char must be a letter or underscore.
+	if !isAlpha(s[0]) && s[0] != '_' {
+		return false
+	}
+	// Subsequent chars must be alphanumeric or underscore.
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !isAlpha(c) && !isDigit(c) && c != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlpha(c byte) bool { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') }
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+// validateEnv checks environment variable names (POSIX naming) and values
+// (no NUL, LF, or CR). In Go, exec.Cmd.Env passes entries as separate strings
+// to execve, so control characters in values aren't a security boundary break
+// but are rejected as defense-in-depth mirroring the original session.ValidateEnv.
+func validateEnv(env map[string]string) error {
+	for key, val := range env {
+		if !isValidEnvName(key) {
+			return fmt.Errorf("invalid environment variable name: %s", key)
+		}
+		if strings.ContainsAny(val, "\x00\n\r") {
+			return fmt.Errorf("env value for key %q contains NUL, LF, or CR", key)
+		}
+	}
+	return nil
+}
+
+// envMapToSlice converts a map to KEY=VALUE slice for exec.
+func envMapToSlice(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(env))
+	for k, v := range env {
+		result = append(result, k+"="+v)
+	}
+	return result
+}
+
 const (
 	defaultRunTimeout = 20 * time.Minute
 	jsonErrKey        = "error"
@@ -158,7 +210,7 @@ func handleRunAutoBackground(
 		return nil, err
 	}
 
-	if err := session.ValidateEnv(req.Env); err != nil {
+	if err := validateEnv(req.Env); err != nil {
 		return nil, err
 	}
 
@@ -167,7 +219,7 @@ func handleRunAutoBackground(
 		slog.Debug("temenos: stripped disallowed env keys from RunRequest",
 			"keys", stripped)
 	}
-	execCfg := buildExecConfig(session.EnvMapToSlice(allowedEnv), mounts, req.AllowedPaths)
+	execCfg := buildExecConfig(envMapToSlice(allowedEnv), mounts, req.AllowedPaths)
 
 	// Start process locally — not in registry yet.
 	job := newBackgroundJob(jobCtx, req.CallerID, req.Command, sbx, execCfg, jobDone)
@@ -244,79 +296,6 @@ func handleHTTPValidating[Req any, Resp any](fn func(context.Context, Req) (*Res
 // and returns HTTP 400 for validation errors, 500 for sandbox errors.
 func handleHTTPRunValidating(h httpHandlers) http.HandlerFunc {
 	return handleHTTPValidating(h.run)
-}
-
-// SessionRegisterResponse is the POST /session/register response.
-type SessionRegisterResponse struct {
-	Token string `json:"token"`
-}
-
-func handleSessionRegister(store *session.Store, req session.RegisterRequest) (*SessionRegisterResponse, error) {
-	s, err := store.Register(req)
-	if err != nil {
-		return nil, err
-	}
-	return &SessionRegisterResponse{Token: s.Token}, nil
-}
-
-func handleSessionDelete(store *session.Store, token string) error {
-	return store.Delete(token)
-}
-
-func handleSessionList(store *session.Store) []session.Session {
-	return store.List()
-}
-
-// handleHTTPSessionRegister handles POST /session/register.
-// Returns 400 if agent field is empty.
-func handleHTTPSessionRegister(store *session.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		var req session.RegisterRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if req.Agent == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{jsonErrKey: "agent must not be empty"})
-			return
-		}
-		resp, err := handleSessionRegister(store, req)
-		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, session.ErrValidation) {
-				status = http.StatusBadRequest
-			}
-			writeJSON(w, status, map[string]string{jsonErrKey: err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, resp)
-	}
-}
-
-// handleHTTPSessionDelete handles DELETE /session/{token}.
-// Returns 404 if token not found.
-func handleHTTPSessionDelete(store *session.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		token := chi.URLParam(r, "token")
-		if store.Get(token) == nil {
-			http.Error(w, "session not found", http.StatusNotFound)
-			return
-		}
-		if err := handleSessionDelete(store, token); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{jsonErrKey: err.Error()})
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-// handleHTTPSessionList handles GET /session/list.
-func handleHTTPSessionList(store *session.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sessions := handleSessionList(store)
-		writeJSON(w, http.StatusOK, sessions)
-	}
 }
 
 // handleHTTPJobList handles GET /jobs.
