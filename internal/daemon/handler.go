@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -111,26 +112,36 @@ func buildExecConfig(envSlice []string, mounts []sandbox.Mount, requestPaths []A
 	return cfg
 }
 
-// isValidEnvName checks for the characters allowed in environment variable names.
-// Allows '*' and '?' for glob matching (used by Config.FilterEnv via allow_env).
-func isValidEnvName(name string) bool {
-	if name == "" {
+// isValidEnvName returns true if s is a valid POSIX env var name:
+// [a-zA-Z_][a-zA-Z0-9_]*. Leading digits and glob characters are rejected —
+// validateEnv validates literal env var names, not allow_env patterns.
+func isValidEnvName(s string) bool {
+	if len(s) == 0 {
 		return false
 	}
-	for _, r := range name {
-		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '*' || r == '?' {
-			continue
-		}
+	if !((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z') || s[0] == '_') {
 		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
 	}
 	return true
 }
 
-// validateEnv checks environment variable names for valid characters.
+// validateEnv checks environment variable names (POSIX naming) and values
+// (no NUL, LF, or CR). In Go, exec.Cmd.Env passes entries as separate strings
+// to execve, so control characters in values aren't a security boundary break
+// but are rejected as defense-in-depth mirroring the original session.ValidateEnv.
 func validateEnv(env map[string]string) error {
-	for key := range env {
+	for key, val := range env {
 		if !isValidEnvName(key) {
 			return fmt.Errorf("invalid environment variable name: %s", key)
+		}
+		if strings.ContainsAny(val, "\x00\n\r") {
+			return fmt.Errorf("env value for key %q contains NUL, LF, or CR", key)
 		}
 	}
 	return nil
