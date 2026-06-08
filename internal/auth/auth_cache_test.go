@@ -77,11 +77,11 @@ func TestTokenCache_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
-		go func(n int) {
+		go func() {
 			defer wg.Done()
 			cache.set("token", "user-1")
 			cache.get("token")
-		}(i)
+		}()
 	}
 	wg.Wait()
 }
