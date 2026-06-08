@@ -2,18 +2,29 @@ package auth
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 const tokenReviewPath = "/apis/authentication.k8s.io/v1/tokenreviews"
 
-var ErrForbidden = errors.New("access denied — invalid token or caller identity")
+var ErrForbidden = errors.New("invalid token or caller identity")
+
+var (
+	inClusterTransport     *http.Transport
+	inClusterTransportOnce sync.Once
+	inClusterTransportErr  error
+)
 
 type tokenReviewRequest struct {
 	APIVersion string `json:"apiVersion"`
@@ -41,11 +52,43 @@ type tokenReviewUser struct {
 	Groups   []string `json:"groups,omitempty"`
 }
 
-// ErrInvalidToken is returned when the token cannot be validated.
-var ErrInvalidToken = errors.New("invalid token")
+func inClusterClient() (*http.Client, error) {
+	inClusterTransportOnce.Do(func() {
+		caCert, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+		if err != nil {
+			inClusterTransportErr = fmt.Errorf("read in-cluster CA: %w", err)
+			return
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			inClusterTransportErr = errors.New("no certificates found in in-cluster CA bundle")
+			return
+		}
+		inClusterTransport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    pool,
+				MinVersion: tls.VersionTLS12,
+			},
+		}
+	})
+	if inClusterTransportErr != nil {
+		return nil, inClusterTransportErr
+	}
+	return &http.Client{Transport: inClusterTransport, Timeout: 10 * time.Second}, nil
+}
 
-// ValidateToken sends a TokenReview request to the Kubernetes API server and
-// returns the authenticated username.
+func defaultClient() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second}
+}
+
+func loadInClusterToken() string {
+	token, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(token))
+}
+
 func ValidateToken(ctx context.Context, token, baseURL string) (string, error) {
 	reqBody := tokenReviewRequest{
 		APIVersion: "authentication.k8s.io/v1",
@@ -65,7 +108,15 @@ func ValidateToken(ctx context.Context, token, baseURL string) (string, error) {
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client, err := inClusterClient()
+	if err != nil {
+		slog.Warn("temenos: cannot load in-cluster TLS config, falling back to default client", "err", err)
+		client = defaultClient()
+	}
+	if saToken := loadInClusterToken(); saToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+saToken)
+	}
+
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("token review request: %w", err)
