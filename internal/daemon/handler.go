@@ -178,11 +178,11 @@ func handleRun(
 ) (*RunResponse, error) {
 	// When Kubernetes SA JWT auth is configured, validate the token before
 	// executing the command.
-	if cfg.Kubernetes.Enabled && cfg.Kubernetes.RequireServiceAccount != "" && cfg.Kubernetes.TokenReviewURL != "" {
+	if cfg.Kubernetes.Enabled && cfg.Kubernetes.RequireServiceAccount != "" {
 		if req.AuthToken == "" {
 			return nil, &runError{status: http.StatusUnauthorized, msg: "authorization required"}
 		}
-		username, err := auth.ValidateToken(ctx, req.AuthToken, cfg.Kubernetes.TokenReviewURL)
+		username, err := auth.ValidateToken(ctx, req.AuthToken)
 		if err != nil {
 			slog.Warn("temenos: auth token validation failed", "err", err)
 			return nil, &runError{status: http.StatusForbidden, msg: "access denied — token validation failed"}

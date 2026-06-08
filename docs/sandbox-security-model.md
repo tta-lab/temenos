@@ -189,7 +189,6 @@ Set `[kubernetes] enabled = true` in `config.toml`:
 [kubernetes]
 enabled = true
 require_service_account = "system:serviceaccount:my-ns:my-agent"
-token_review_url = "https://kubernetes.default.svc"
 ```
 
 When enabled:
@@ -198,7 +197,7 @@ When enabled:
   namespaced procfs) is shared into the bwrap sandbox.
 - All other isolation (`--unshare-all`, `--share-net`, `--die-with-parent`)
   remains in effect.
-- If `require_service_account` and `token_review_url` are set, every `/run`
+- If `require_service_account` is set, every `/run`
   request must carry a valid Kubernetes service account token in the
   `Authorization: Bearer <token>` header. Temenos validates it against the
   TokenReview API and rejects calls from untrusted SAs.

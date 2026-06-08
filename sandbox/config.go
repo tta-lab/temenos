@@ -25,10 +25,10 @@ type Config struct {
 }
 
 // KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
+// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
 type KubernetesConfig struct {
 	Enabled               bool   `toml:"enabled"`                 // true for nested K8s mode (skip --proc /proc)
 	RequireServiceAccount string `toml:"require_service_account"` // SA username required on /run when enabled
-	TokenReviewURL        string `toml:"token_review_url"`        // Kubernetes TokenReview API URL
 }
 
 // DefaultConfigPath returns the default configuration file path.
@@ -142,14 +142,9 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// When kubernetes.enabled = true, both auth fields are required.
-	if cfg.Kubernetes.Enabled {
-		if cfg.Kubernetes.RequireServiceAccount == "" {
-			return nil, fmt.Errorf("kubernetes.require_service_account is required when kubernetes.enabled = true")
-		}
-		if cfg.Kubernetes.TokenReviewURL == "" {
-			return nil, fmt.Errorf("kubernetes.token_review_url is required when kubernetes.enabled = true")
-		}
+	// When kubernetes.enabled = true, require_service_account is required.
+	if cfg.Kubernetes.Enabled && cfg.Kubernetes.RequireServiceAccount == "" {
+		return nil, fmt.Errorf("kubernetes.require_service_account is required when kubernetes.enabled = true")
 	}
 
 	return &cfg, nil

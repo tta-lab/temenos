@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const tokenReviewURL = "https://kubernetes.default.svc/apis/authentication.k8s.io/v1/tokenreviews"
+
 var ErrForbidden = errors.New("access denied — invalid token or caller identity")
 
 type tokenReviewRequest struct {
@@ -39,7 +41,7 @@ type tokenReviewUser struct {
 	Groups   []string `json:"groups,omitempty"`
 }
 
-func ValidateToken(ctx context.Context, token, tokenReviewURL string) (string, error) {
+func ValidateToken(ctx context.Context, token string) (string, error) {
 	reqBody := tokenReviewRequest{
 		APIVersion: "authentication.k8s.io/v1",
 		Kind:       "TokenReview",
