@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -18,13 +17,45 @@ import (
 
 const tokenReviewPath = "/apis/authentication.k8s.io/v1/tokenreviews"
 
+var (
+	inClusterClientOnce sync.Once
+	inClusterHTTPClient *http.Client
+	inClusterSAToken    string
+	inClusterErr        error
+)
+
 var ErrForbidden = errors.New("invalid token or caller identity")
 
-var (
-	inClusterTransport     *http.Transport
-	inClusterTransportOnce sync.Once
-	inClusterTransportErr  error
-)
+func initInCluster() {
+	caCert, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	if err != nil {
+		inClusterErr = fmt.Errorf("read in-cluster CA: %w", err)
+		return
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caCert) {
+		inClusterErr = errors.New("no certificates found in in-cluster CA bundle")
+		return
+	}
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS12,
+		},
+	}
+	inClusterHTTPClient = &http.Client{Transport: transport, Timeout: 10 * time.Second}
+
+	tokenBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	if err != nil {
+		inClusterErr = fmt.Errorf("read in-cluster SA token: %w", err)
+		return
+	}
+	inClusterSAToken = strings.TrimSpace(string(tokenBytes))
+	if inClusterSAToken == "" {
+		inClusterErr = errors.New("in-cluster SA token is empty")
+		return
+	}
+}
 
 type tokenReviewRequest struct {
 	APIVersion string `json:"apiVersion"`
@@ -52,44 +83,12 @@ type tokenReviewUser struct {
 	Groups   []string `json:"groups,omitempty"`
 }
 
-func inClusterClient() (*http.Client, error) {
-	inClusterTransportOnce.Do(func() {
-		caCert, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-		if err != nil {
-			inClusterTransportErr = fmt.Errorf("read in-cluster CA: %w", err)
-			return
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caCert) {
-			inClusterTransportErr = errors.New("no certificates found in in-cluster CA bundle")
-			return
-		}
-		inClusterTransport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:    pool,
-				MinVersion: tls.VersionTLS12,
-			},
-		}
-	})
-	if inClusterTransportErr != nil {
-		return nil, inClusterTransportErr
-	}
-	return &http.Client{Transport: inClusterTransport, Timeout: 10 * time.Second}, nil
-}
-
-func defaultClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Second}
-}
-
-func loadInClusterToken() string {
-	token, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(token))
-}
-
 func ValidateToken(ctx context.Context, token, baseURL string) (string, error) {
+	inClusterClientOnce.Do(initInCluster)
+	if inClusterErr != nil {
+		return "", fmt.Errorf("temenos: k8s mode requires in-cluster config: %w", inClusterErr)
+	}
+
 	reqBody := tokenReviewRequest{
 		APIVersion: "authentication.k8s.io/v1",
 		Kind:       "TokenReview",
@@ -107,17 +106,9 @@ func ValidateToken(ctx context.Context, token, baseURL string) (string, error) {
 		return "", fmt.Errorf("build token review request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+inClusterSAToken)
 
-	client, err := inClusterClient()
-	if err != nil {
-		slog.Warn("temenos: cannot load in-cluster TLS config, falling back to default client", "err", err)
-		client = defaultClient()
-	}
-	if saToken := loadInClusterToken(); saToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+saToken)
-	}
-
-	resp, err := client.Do(httpReq)
+	resp, err := inClusterHTTPClient.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("token review request: %w", err)
 	}
