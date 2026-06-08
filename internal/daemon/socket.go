@@ -32,6 +32,7 @@ type httpHandlers struct {
 func newRouter(h httpHandlers) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
+
 	r.Post("/run", handleHTTPRunValidating(h))
 
 	r.Get("/health", handleHTTPHealth(h))

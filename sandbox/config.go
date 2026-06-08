@@ -16,11 +16,20 @@ const DefaultAutoBackgroundAfter = 30
 
 // Config holds the temenos configuration.
 type Config struct {
-	AllowRead           []string `toml:"allow_read"`
-	AllowWrite          []string `toml:"allow_write"`
-	AllowEnv            []string `toml:"allow_env"`
-	AutoBackgroundAfter int      `toml:"auto_background_after"` // seconds, default: 30
-	SocketPath          string   `toml:"socket_path"`           // default: ~/.temenos/daemon.sock
+	AllowRead           []string         `toml:"allow_read"`
+	AllowWrite          []string         `toml:"allow_write"`
+	AllowEnv            []string         `toml:"allow_env"`
+	AutoBackgroundAfter int              `toml:"auto_background_after"` // seconds, default: 30
+	SocketPath          string           `toml:"socket_path"`           // default: ~/.temenos/daemon.sock
+	Kubernetes          KubernetesConfig `toml:"kubernetes"`
+}
+
+// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
+type KubernetesConfig struct {
+	Enabled               bool   `toml:"enabled"`                 // true for nested K8s mode (skip --proc /proc)
+	RequireServiceAccount string `toml:"require_service_account"` // SA username required on /run when enabled
+	// TokenReviewURL is the k8s API server base URL. Defaults to https://kubernetes.default.svc.
+	TokenReviewURL string `toml:"token_review_url"`
 }
 
 // DefaultConfigPath returns the default configuration file path.
@@ -134,6 +143,11 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	// When kubernetes.enabled = true, require_service_account is required.
+	if cfg.Kubernetes.Enabled && cfg.Kubernetes.RequireServiceAccount == "" {
+		return nil, fmt.Errorf("kubernetes.require_service_account is required when kubernetes.enabled = true")
+	}
+
 	return &cfg, nil
 }
 
@@ -147,6 +161,9 @@ func (c *Config) applyDefaults() error {
 			return err
 		}
 		c.SocketPath = socketPath
+	}
+	if c.Kubernetes.TokenReviewURL == "" {
+		c.Kubernetes.TokenReviewURL = "https://kubernetes.default.svc"
 	}
 	return nil
 }

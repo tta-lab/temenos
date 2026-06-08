@@ -15,6 +15,7 @@ type Options struct {
 	Timeout          time.Duration // default execution timeout
 	AllowUnsandboxed bool          // if true, fall back to NoopSandbox when no platform sandbox is found
 	MemoryLimitMB    int           // Linux only; cgroup v2 memory limit in MB; 0 = no limit
+	KubernetesMode   bool          // skip --proc /proc for nested k8s environments
 }
 
 // New creates the appropriate sandbox for the current platform.
@@ -24,9 +25,10 @@ type Options struct {
 // Returns UnavailableSandbox when AllowUnsandboxed is false and no platform sandbox is found.
 func New(opts Options) Sandbox {
 	sbx := &BwrapSandbox{
-		BwrapPath:     cmp.Or(opts.BwrapPath, "bwrap"),
-		Timeout:       opts.Timeout,
-		MemoryLimitMB: opts.MemoryLimitMB,
+		BwrapPath:      cmp.Or(opts.BwrapPath, "bwrap"),
+		Timeout:        opts.Timeout,
+		MemoryLimitMB:  opts.MemoryLimitMB,
+		KubernetesMode: opts.KubernetesMode,
 	}
 	if sbx.IsAvailable() {
 		return sbx

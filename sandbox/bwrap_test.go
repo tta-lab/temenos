@@ -330,3 +330,34 @@ func TestBwrapSandbox_BuildArgs_SkipsMissingSources(t *testing.T) {
 	}
 	assert.True(t, foundTmpBind, "existing source path /tmp should be bound")
 }
+
+func TestBwrapSandbox_BuildArgs_KubernetesMode(t *testing.T) {
+	s := &BwrapSandbox{BwrapPath: "bwrap", KubernetesMode: true}
+
+	args := s.buildArgs("echo hello", nil)
+
+	// In Kubernetes mode, --proc /proc, --unshare-pid, and --unshare-all must be absent.
+	// Instead, explicit per-namespace flags are used (--unshare-user-try, --unshare-ipc, etc.)
+	foundProc := false
+	foundUnsharePID := false
+	foundUnshareAll := false
+	for i, a := range args {
+		if a == "--proc" && i+1 < len(args) && args[i+1] == "/proc" {
+			foundProc = true
+		}
+		if a == "--unshare-pid" {
+			foundUnsharePID = true
+		}
+		if a == "--unshare-all" {
+			foundUnshareAll = true
+		}
+	}
+	assert.False(t, foundProc, "expected no --proc /proc in k8s mode")
+	assert.False(t, foundUnsharePID, "expected no --unshare-pid in k8s mode")
+	assert.False(t, foundUnshareAll, "expected no --unshare-all in k8s mode")
+
+	// Explicit namespace flags must be present.
+	assert.Contains(t, args, "--unshare-user-try")
+	assert.Contains(t, args, "--unshare-ipc")
+	assert.Contains(t, args, "--unshare-uts")
+}

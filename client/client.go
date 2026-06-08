@@ -109,6 +109,7 @@ type RunRequest struct {
 	Network      *bool             `json:"network,omitempty"`
 	Timeout      int               `json:"timeout,omitempty"` // seconds, 0 = default
 	CallerID     string            `json:"caller_id,omitempty"`
+	AuthToken    string            `json:"auth_token,omitempty"` // SA JWT for k8s auth
 }
 
 // AllowedPath specifies a filesystem path allowed in the sandbox.

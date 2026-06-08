@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/tta-lab/temenos/internal/auth"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -29,7 +30,8 @@ type RunRequest struct {
 	Timeout int   `json:"timeout,omitempty"` // seconds, 0 = default
 	// CallerID is an opaque identifier assigned by the caller (e.g. Lenos session ID).
 	// Used to filter jobs by caller. Not interpreted by Temenos.
-	CallerID string `json:"caller_id,omitempty"`
+	CallerID  string `json:"caller_id,omitempty"`
+	AuthToken string `json:"auth_token,omitempty"` // SA JWT for k8s auth
 }
 
 // AllowedPath specifies a filesystem mount for the sandbox.
@@ -173,6 +175,28 @@ func handleRun(
 	ctx context.Context, cfg *sandbox.Config, sbx sandbox.Sandbox,
 	jobMgr *BackgroundJobManager, req RunRequest,
 ) (*RunResponse, error) {
+	// When Kubernetes SA JWT auth is configured, validate the token before
+	// executing the command.
+	if cfg.Kubernetes.Enabled && cfg.Kubernetes.RequireServiceAccount != "" {
+		if req.AuthToken == "" {
+			return nil, &runError{status: http.StatusUnauthorized, msg: "authorization required"}
+		}
+		username, err := auth.ValidateToken(ctx, req.AuthToken, cfg.Kubernetes.TokenReviewURL)
+		if err != nil {
+			slog.Warn("temenos: auth token validation failed", "err", err)
+			return nil, &runError{status: http.StatusForbidden, msg: "access denied — token validation failed"}
+		}
+		requiredSAs := strings.Split(cfg.Kubernetes.RequireServiceAccount, ",")
+		for i := range requiredSAs {
+			requiredSAs[i] = strings.TrimSpace(requiredSAs[i])
+		}
+		if !auth.IsRequiredSA(username, requiredSAs) {
+			slog.Warn("temenos: auth caller not in required service accounts",
+				"caller", username, "required", requiredSAs)
+			return nil, &runError{status: http.StatusForbidden, msg: "access denied — unauthorized service account"}
+		}
+	}
+
 	autoBackground := cfg.AutoBackgroundAfter
 	if autoBackground == 0 {
 		autoBackground = sandbox.DefaultAutoBackgroundAfter
@@ -281,6 +305,11 @@ func handleHTTPValidating[Req any, Resp any](fn func(context.Context, Req) (*Res
 		}
 		resp, err := fn(r.Context(), req)
 		if err != nil {
+			var re *runError
+			if errors.As(err, &re) {
+				writeJSON(w, re.status, map[string]string{jsonErrKey: re.msg})
+				return
+			}
 			if errors.Is(err, errHTTPValidation) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{jsonErrKey: err.Error()})
 				return
@@ -359,3 +388,10 @@ func handleHTTPJobKill(jobMgr *BackgroundJobManager) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, job.snapshot(true))
 	}
 }
+
+type runError struct {
+	status int
+	msg    string
+}
+
+func (e *runError) Error() string { return e.msg }

@@ -177,6 +177,34 @@ platforms.
 └──────────────────────────────────────────────────┘
 ```
 
+## Kubernetes Nested Mode
+
+When Temenos runs inside a Kubernetes pod, mounting a fresh procfs inside a new
+PID namespace (`bwrap --proc /proc --unshare-pid`) requires `CAP_SYS_ADMIN` — a
+privileged capability not recommended for typical K8s workloads.
+
+Set `[kubernetes] enabled = true` in `config.toml`:
+
+```toml
+[kubernetes]
+enabled = true
+require_service_account = "system:serviceaccount:my-ns:my-agent"
+```
+
+When enabled:
+
+- `buildArgs()` skips `--proc /proc`. The pod's own `/proc` (already a
+  namespaced procfs) is shared into the bwrap sandbox.
+- All other isolation (`--unshare-all`, `--share-net`, `--die-with-parent`)
+  remains in effect.
+- If `require_service_account` is set, every `/run`
+  request must carry a valid Kubernetes service account token in the
+  `auth_token` in the JSON request body. Temenos validates it against the
+  TokenReview API (POST /apis/authentication.k8s.io/v1/tokenreviews on the
+  configured or default `token_review_url`) and rejects calls from untrusted SAs.
+
+No `CAP_SYS_ADMIN` or `privileged: true` is needed.
+
 ## Adding a New Tool Directory
 
 1. Add a `ToolDir` entry in `sandbox/paths.go`:
