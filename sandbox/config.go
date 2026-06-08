@@ -15,12 +15,22 @@ import (
 const DefaultAutoBackgroundAfter = 30
 
 // Config holds the temenos configuration.
+// Config holds the temenos configuration.
 type Config struct {
-	AllowRead           []string `toml:"allow_read"`
-	AllowWrite          []string `toml:"allow_write"`
-	AllowEnv            []string `toml:"allow_env"`
-	AutoBackgroundAfter int      `toml:"auto_background_after"` // seconds, default: 30
-	SocketPath          string   `toml:"socket_path"`           // default: ~/.temenos/daemon.sock
+	AllowRead           []string         `toml:"allow_read"`
+	AllowWrite          []string         `toml:"allow_write"`
+	AllowEnv            []string         `toml:"allow_env"`
+	AutoBackgroundAfter int              `toml:"auto_background_after"` // seconds, default: 30
+	SocketPath          string           `toml:"socket_path"`           // default: ~/.temenos/daemon.sock
+	Kubernetes          KubernetesConfig `toml:"kubernetes"`
+}
+
+// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
+// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
+type KubernetesConfig struct {
+	Enabled               bool   `toml:"enabled"`                 // true for nested K8s mode (skip --proc /proc)
+	RequireServiceAccount string `toml:"require_service_account"` // SA username required on /run when enabled
+	TokenReviewURL        string `toml:"token_review_url"`        // Kubernetes TokenReview API URL
 }
 
 // DefaultConfigPath returns the default configuration file path.
@@ -132,6 +142,16 @@ func Load(path string) (*Config, error) {
 	// known-good by construction (patterns are reviewed and frozen at source).
 	if err := validateAllowEnv(cfg.AllowEnv); err != nil {
 		return nil, err
+	}
+
+	// When kubernetes.enabled = true, both auth fields are required.
+	if cfg.Kubernetes.Enabled {
+		if cfg.Kubernetes.RequireServiceAccount == "" {
+			return nil, fmt.Errorf("kubernetes.require_service_account is required when kubernetes.enabled = true")
+		}
+		if cfg.Kubernetes.TokenReviewURL == "" {
+			return nil, fmt.Errorf("kubernetes.token_review_url is required when kubernetes.enabled = true")
+		}
 	}
 
 	return &cfg, nil

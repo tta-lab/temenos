@@ -330,3 +330,26 @@ func TestBwrapSandbox_BuildArgs_SkipsMissingSources(t *testing.T) {
 	}
 	assert.True(t, foundTmpBind, "existing source path /tmp should be bound")
 }
+
+func TestBwrapSandbox_BuildArgs_KubernetesMode(t *testing.T) {
+	s := &BwrapSandbox{BwrapPath: "bwrap", KubernetesMode: true}
+
+	args := s.buildArgs("echo hello", nil)
+
+	// In Kubernetes mode, --proc /proc and --unshare-pid must be absent.
+	foundProc := false
+	foundUnsharePID := false
+	for i, a := range args {
+		if a == "--proc" && i+1 < len(args) && args[i+1] == "/proc" {
+			foundProc = true
+		}
+		if a == "--unshare-pid" {
+			foundUnsharePID = true
+		}
+	}
+	assert.False(t, foundProc, "expected no --proc /proc in k8s mode")
+	assert.False(t, foundUnsharePID, "expected no --unshare-pid in k8s mode")
+
+	// Still should have --unshare-all which, without --unshare-pid, will skip PID namespace.
+	assert.Contains(t, args, "--unshare-all")
+}

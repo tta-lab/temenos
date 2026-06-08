@@ -292,3 +292,65 @@ func TestFilterEnv_StrippedSorted(t *testing.T) {
 
 	assert.Equal(t, []string{"ALPHA", "MIDDLE", "ZEBRA"}, stripped)
 }
+
+func TestLoad_KubernetesConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	configContent := `
+socket_path = "/run/temenos/daemon.sock"
+
+[kubernetes]
+enabled = true
+require_service_account = "system:serviceaccount:apps-prod:flicknote-agent-server"
+token_review_url = "https://kubernetes.default.svc"
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.Kubernetes.Enabled, "enabled should be true")
+	assert.Equal(t, "system:serviceaccount:apps-prod:flicknote-agent-server", cfg.Kubernetes.RequireServiceAccount)
+	assert.Equal(t, "https://kubernetes.default.svc", cfg.Kubernetes.TokenReviewURL)
+}
+
+func TestLoad_KubernetesConfigEnabledFalse(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	configContent := `
+socket_path = "/run/temenos/daemon.sock"
+
+[kubernetes]
+enabled = false
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	assert.False(t, cfg.Kubernetes.Enabled)
+	assert.Empty(t, cfg.Kubernetes.RequireServiceAccount)
+	assert.Empty(t, cfg.Kubernetes.TokenReviewURL)
+}
+
+func TestLoad_KubernetesEnabled_MissingRequiredAuth(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	configContent := `
+socket_path = "/run/temenos/daemon.sock"
+
+[kubernetes]
+enabled = true
+`
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	_, err = Load(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "require_service_account")
+}

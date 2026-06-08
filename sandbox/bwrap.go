@@ -16,10 +16,13 @@ import (
 
 // BwrapSandbox executes commands using bubblewrap (bwrap) namespace isolation.
 // Used on Linux.
+// BwrapSandbox executes commands using bubblewrap (bwrap) namespace isolation.
+// Used on Linux.
 type BwrapSandbox struct {
-	BwrapPath     string
-	Timeout       time.Duration
-	MemoryLimitMB int // 0 = no limit
+	BwrapPath      string
+	Timeout        time.Duration
+	MemoryLimitMB  int  // 0 = no limit
+	KubernetesMode bool // skips --proc /proc and --unshare-pid for k8s nested environments
 }
 
 const (
@@ -87,26 +90,43 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 	//   - --ro-bind /usr, /bin, /lib: expose trusted system tools and shared libs read-only.
 	//   - --tmpfs /tmp and /home/agent: give tools writable scratch space without host writes.
 	//   - --proc /proc: mount a fresh procfs so /proc/self/exe works without exposing host /proc.
+	//     Skipped in Kubernetes mode (nested container): mounting procfs inside a new PID namespace
+	//     requires CAP_SYS_ADMIN, which is not recommended for k8s workloads.
 	//   - --unshare-all: isolate user, ipc, pid, network, uts, and cgroup namespaces where possible.
 	//   - --share-net: intentionally keep host network access after --unshare-all.
 	//   - --dev /dev: create a minimal device filesystem for stdio, null, random, etc.
 	//   - --ro-bind resolv.conf, certs, hosts: make DNS and TLS work with shared networking.
 	//   - --die-with-parent: kill sandboxed processes if the daemon-side bwrap parent dies.
 	//   - --symlink /usr/lib64 /lib64: support distributions where /lib64 points into /usr.
-	args := []string{
-		roBind, staticUsr, staticUsr,
-		roBind, staticBin, staticBin,
-		"--tmpfs", "/tmp",
-		"--tmpfs", "/home/agent",
-		procArg, staticProc,
-		"--unshare-all",
+	var args []string
+	if s.KubernetesMode {
+		// In nested Kubernetes, skip --proc /proc (needs CAP_SYS_ADMIN).
+		// The pod's own /proc is already an unprivileged procfs.
+		args = []string{
+			roBind, staticUsr, staticUsr,
+			roBind, staticBin, staticBin,
+			"--tmpfs", "/tmp",
+			"--tmpfs", "/home/agent",
+			"--unshare-all",
+		}
+	} else {
+		args = []string{
+			roBind, staticUsr, staticUsr,
+			roBind, staticBin, staticBin,
+			"--tmpfs", "/tmp",
+			"--tmpfs", "/home/agent",
+			procArg, staticProc,
+			"--unshare-all",
+		}
+	}
+	args = append(args,
 		"--share-net",
 		"--dev", "/dev",
 		roBind, "/etc/resolv.conf", "/etc/resolv.conf",
 		roBind, "/etc/ssl/certs", "/etc/ssl/certs",
 		roBind, "/etc/hosts", "/etc/hosts",
 		"--die-with-parent",
-	}
+	)
 
 	if runtime.GOOS == "linux" {
 		args = append(args,

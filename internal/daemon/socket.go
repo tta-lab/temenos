@@ -23,16 +23,24 @@ const (
 )
 
 type httpHandlers struct {
-	cfg    *sandbox.Config
-	run    func(ctx context.Context, req RunRequest) (*RunResponse, error)
-	health func() HealthResponse
-	jobMgr *BackgroundJobManager
+	cfg         *sandbox.Config
+	run         func(ctx context.Context, req RunRequest) (*RunResponse, error)
+	health      func() HealthResponse
+	jobMgr      *BackgroundJobManager
+	authEnabled bool
+	authChecker func(http.Handler) http.Handler
 }
 
 func newRouter(h httpHandlers) *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
-	r.Post("/run", handleHTTPRunValidating(h))
+
+	runHandler := handleHTTPRunValidating(h)
+	if h.authEnabled && h.authChecker != nil {
+		r.With(h.authChecker).Post("/run", runHandler)
+	} else {
+		r.Post("/run", runHandler)
+	}
 
 	r.Get("/health", handleHTTPHealth(h))
 	if h.jobMgr != nil {
