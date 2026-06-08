@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tta-lab/temenos/internal/auth"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -91,13 +92,21 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 	// Initialize background job manager.
 	jobMgr := NewBackgroundJobManager()
 
+	// Wire cached token validator when k8s auth is enabled.
+	var tokenValidator *auth.CachedTokenValidator
+	if cfg.Kubernetes.Enabled && cfg.Kubernetes.RequireServiceAccount != "" {
+		tokenValidator = auth.NewCachedTokenValidator(5 * time.Minute)
+		slog.Info("temenos: token review cache enabled", "ttl", "5m")
+	}
+
 	srv, serveErr, err := listenHTTP(addr, httpHandlers{
 		cfg: cfg,
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
-			return handleRun(ctx, cfg, sbx, jobMgr, req)
+			return handleRun(ctx, cfg, sbx, jobMgr, tokenValidator, req)
 		},
-		health: func() HealthResponse { return handleHealth(version) },
-		jobMgr: jobMgr,
+		health:         func() HealthResponse { return handleHealth(version) },
+		jobMgr:         jobMgr,
+		tokenValidator: tokenValidator,
 	})
 	if err != nil {
 		return err

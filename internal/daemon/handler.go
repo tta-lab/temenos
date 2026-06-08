@@ -173,7 +173,8 @@ const (
 
 func handleRun(
 	ctx context.Context, cfg *sandbox.Config, sbx sandbox.Sandbox,
-	jobMgr *BackgroundJobManager, req RunRequest,
+	jobMgr *BackgroundJobManager, tokenValidator *auth.CachedTokenValidator,
+	req RunRequest,
 ) (*RunResponse, error) {
 	// When Kubernetes SA JWT auth is configured, validate the token before
 	// executing the command.
@@ -181,7 +182,7 @@ func handleRun(
 		if req.AuthToken == "" {
 			return nil, &runError{status: http.StatusUnauthorized, msg: "authorization required"}
 		}
-		username, err := auth.ValidateToken(ctx, req.AuthToken, cfg.Kubernetes.TokenReviewURL)
+		username, err := validateToken(ctx, tokenValidator, req.AuthToken, cfg.Kubernetes.TokenReviewURL)
 		if err != nil {
 			slog.Warn("temenos: auth token validation failed", "err", err)
 			return nil, &runError{status: http.StatusForbidden, msg: "access denied — token validation failed"}
@@ -213,6 +214,15 @@ func handleRun(
 		cancel()
 	}
 	return resp, err
+}
+
+// validateToken validates the token using the cached validator if available,
+// falling back to a direct TokenReview call otherwise.
+func validateToken(ctx context.Context, tv *auth.CachedTokenValidator, token, baseURL string) (string, error) {
+	if tv != nil {
+		return tv.ValidateToken(ctx, token, baseURL)
+	}
+	return auth.ValidateToken(ctx, token, baseURL)
 }
 
 // handleRunAutoBackground starts the command as a background job and polls
