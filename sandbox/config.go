@@ -15,7 +15,6 @@ import (
 const DefaultAutoBackgroundAfter = 30
 
 // Config holds the temenos configuration.
-// Config holds the temenos configuration.
 type Config struct {
 	AllowRead           []string         `toml:"allow_read"`
 	AllowWrite          []string         `toml:"allow_write"`
@@ -25,7 +24,6 @@ type Config struct {
 	Kubernetes          KubernetesConfig `toml:"kubernetes"`
 }
 
-// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
 // KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
 type KubernetesConfig struct {
 	Enabled               bool   `toml:"enabled"`                 // true for nested K8s mode (skip --proc /proc)

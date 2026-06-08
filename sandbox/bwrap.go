@@ -16,8 +16,6 @@ import (
 
 // BwrapSandbox executes commands using bubblewrap (bwrap) namespace isolation.
 // Used on Linux.
-// BwrapSandbox executes commands using bubblewrap (bwrap) namespace isolation.
-// Used on Linux.
 type BwrapSandbox struct {
 	BwrapPath      string
 	Timeout        time.Duration

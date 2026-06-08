@@ -10,7 +10,6 @@ import (
 )
 
 // Options configures the sandbox constructor.
-// Options configures the sandbox constructor.
 type Options struct {
 	BwrapPath        string        // Linux only; defaults to "bwrap"
 	Timeout          time.Duration // default execution timeout
