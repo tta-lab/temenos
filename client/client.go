@@ -16,9 +16,16 @@ import (
 )
 
 // Client talks to the temenos daemon over unix socket or TCP.
+// Client talks to the temenos daemon over unix socket or TCP.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
+	authToken  string // optional SA JWT for Authorization header (k8s mode)
+}
+
+// SetAuthToken sets the service account JWT token sent on every request.
+func (c *Client) SetAuthToken(token string) {
+	c.authToken = token
 }
 
 // defaultSocketPath resolves the temenos socket path, mirroring daemon.DefaultSocketPath.
@@ -141,6 +148,9 @@ func postJSON[Req any, Resp any](ctx context.Context, c *Client, path string, re
 		return nil, fmt.Errorf("temenos: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if c.authToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
