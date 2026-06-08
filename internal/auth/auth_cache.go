@@ -18,13 +18,45 @@ type tokenCache struct {
 	entries map[string]cacheEntry
 	ttl     time.Duration
 	mu      sync.RWMutex
+	done    chan struct{}
 }
 
 func newTokenCache(ttl time.Duration) *tokenCache {
-	return &tokenCache{
+	c := &tokenCache{
 		entries: make(map[string]cacheEntry),
 		ttl:     ttl,
+		done:    make(chan struct{}),
 	}
+	go c.sweep()
+	return c
+}
+
+func (c *tokenCache) sweep() {
+	ticker := time.NewTicker(c.ttl / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.deleteExpired()
+		case <-c.done:
+			return
+		}
+	}
+}
+
+func (c *tokenCache) deleteExpired() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	for token, entry := range c.entries {
+		if now.After(entry.expiresAt) {
+			delete(c.entries, token)
+		}
+	}
+}
+
+func (c *tokenCache) close() {
+	close(c.done)
 }
 
 func (c *tokenCache) get(token string) (string, bool) {
@@ -32,7 +64,13 @@ func (c *tokenCache) get(token string) (string, bool) {
 	entry, ok := c.entries[token]
 	c.mu.RUnlock()
 
-	if !ok || time.Now().After(entry.expiresAt) {
+	if !ok {
+		return "", false
+	}
+	if time.Now().After(entry.expiresAt) {
+		c.mu.Lock()
+		delete(c.entries, token)
+		c.mu.Unlock()
 		return "", false
 	}
 	return entry.username, true

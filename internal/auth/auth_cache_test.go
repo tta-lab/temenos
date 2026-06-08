@@ -85,3 +85,49 @@ func TestTokenCache_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestTokenCache_SweepRemovesExpiredEntries(t *testing.T) {
+	cache := newTokenCache(5 * time.Millisecond)
+	defer cache.close()
+
+	cache.set("token-abc", "user-1")
+	cache.set("token-xyz", "user-2")
+
+	// Wait long enough for all entries to expire and the sweep to run.
+	time.Sleep(20 * time.Millisecond)
+
+	cache.mu.RLock()
+	count := len(cache.entries)
+	cache.mu.RUnlock()
+
+	assert.Equal(t, 0, count, "sweep should remove all expired entries")
+}
+
+func TestTokenCache_SweepKeepsValidEntries(t *testing.T) {
+	cache := newTokenCache(5 * time.Second)
+	defer cache.close()
+
+	cache.set("token-abc", "user-1")
+	time.Sleep(10 * time.Millisecond)
+
+	cache.mu.RLock()
+	count := len(cache.entries)
+	cache.mu.RUnlock()
+
+	assert.Equal(t, 1, count, "valid entry should not be swept")
+}
+
+func TestTokenCache_CloseStopsSweep(t *testing.T) {
+	cache := newTokenCache(1 * time.Millisecond)
+	cache.close()
+
+	// Insert after close — sweep is no longer running.
+	cache.set("token-abc", "user-1")
+	time.Sleep(10 * time.Millisecond)
+
+	cache.mu.RLock()
+	count := len(cache.entries)
+	cache.mu.RUnlock()
+
+	assert.Equal(t, 1, count, "entry inserted after close should remain")
+}
