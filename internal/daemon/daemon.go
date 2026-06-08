@@ -67,32 +67,26 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 		slog.Info("temenos: cgroup v2 memory limits enabled", "limit_mb", cgroupv2MemoryLimitMB)
 	}
 
-	sbx := sandbox.New(sandbox.Options{
-		Timeout:          sandbox.DefaultTimeout,
-		AllowUnsandboxed: false,
-		MemoryLimitMB:    cgroupv2MemoryLimitMB,
-	})
-
-	tracker := NewProcessTracker()
-	defer tracker.KillAll()
-
-	// Load config for baseline mounts.
+	// Load config first — sandbox options depend on kubernetes.enabled.
 	cfg, err := sandbox.Load("")
 	if err != nil {
 		slog.Error("failed to load config — no baseline mounts will be applied", "err", err)
 		cfg = &sandbox.Config{}
 	}
 
-	// Rebuild sandbox with k8s mode from config (loaded after sandbox.New).
+	opts := sandbox.Options{
+		Timeout:          sandbox.DefaultTimeout,
+		AllowUnsandboxed: false,
+		MemoryLimitMB:    cgroupv2MemoryLimitMB,
+	}
 	if cfg.Kubernetes.Enabled {
-		sbx = sandbox.New(sandbox.Options{
-			Timeout:          sandbox.DefaultTimeout,
-			AllowUnsandboxed: false,
-			MemoryLimitMB:    cgroupv2MemoryLimitMB,
-			KubernetesMode:   true,
-		})
+		opts.KubernetesMode = true
 		slog.Info("temenos: kubernetes mode enabled")
 	}
+	sbx := sandbox.New(opts)
+
+	tracker := NewProcessTracker()
+	defer tracker.KillAll()
 
 	// Initialize background job manager.
 	jobMgr := NewBackgroundJobManager()

@@ -98,14 +98,19 @@ func (s *BwrapSandbox) buildArgs(command string, cfg *ExecConfig) []string {
 	//   - --symlink /usr/lib64 /lib64: support distributions where /lib64 points into /usr.
 	var args []string
 	if s.KubernetesMode {
-		// In nested Kubernetes, skip --proc /proc (needs CAP_SYS_ADMIN).
-		// The pod's own /proc is already an unprivileged procfs.
+		// In nested Kubernetes, skip --proc /proc and PID namespacing.
+		// Use explicit per-namespace flags instead of --unshare-all so
+		// --unshare-pid is omitted. PID namespace + proc mount requires
+		// CAP_SYS_ADMIN, which the pod does not have.
 		args = []string{
 			roBind, staticUsr, staticUsr,
 			roBind, staticBin, staticBin,
 			"--tmpfs", "/tmp",
 			"--tmpfs", "/home/agent",
-			"--unshare-all",
+			"--unshare-user-try",
+			"--unshare-ipc",
+			"--unshare-uts",
+			"--unshare-cgroup-try",
 		}
 	} else {
 		args = []string{
