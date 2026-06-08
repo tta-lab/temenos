@@ -25,8 +25,6 @@ type Config struct {
 }
 
 // KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
-// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
-// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
 type KubernetesConfig struct {
 	Enabled               bool   `toml:"enabled"`                 // true for nested K8s mode (skip --proc /proc)
 	RequireServiceAccount string `toml:"require_service_account"` // SA username required on /run when enabled

@@ -19,7 +19,6 @@ import (
 )
 
 // RunRequest is the POST /run body.
-// RunRequest is the POST /run body.
 type RunRequest struct {
 	Command      string            `json:"command"`
 	Env          map[string]string `json:"env,omitempty"`
