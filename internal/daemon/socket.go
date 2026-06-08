@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/tta-lab/temenos/internal/auth"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -24,11 +23,10 @@ const (
 )
 
 type httpHandlers struct {
-	cfg            *sandbox.Config
-	run            func(ctx context.Context, req RunRequest) (*RunResponse, error)
-	health         func() HealthResponse
-	jobMgr         *BackgroundJobManager
-	tokenValidator *auth.CachedTokenValidator
+	cfg    *sandbox.Config
+	run    func(ctx context.Context, req RunRequest) (*RunResponse, error)
+	health func() HealthResponse
+	jobMgr *BackgroundJobManager
 }
 
 func newRouter(h httpHandlers) *chi.Mux {

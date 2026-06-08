@@ -104,9 +104,8 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
 			return handleRun(ctx, cfg, sbx, jobMgr, tokenValidator, req)
 		},
-		health:         func() HealthResponse { return handleHealth(version) },
-		jobMgr:         jobMgr,
-		tokenValidator: tokenValidator,
+		health: func() HealthResponse { return handleHealth(version) },
+		jobMgr: jobMgr,
 	})
 	if err != nil {
 		return err
