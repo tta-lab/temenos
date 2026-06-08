@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // ErrTokenMissing is returned when no Authorization header is present.
@@ -118,7 +119,7 @@ func validateWithTokenReview(ctx context.Context, token, tokenReviewURL string) 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("token review request: %w", err)
