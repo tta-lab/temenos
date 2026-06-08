@@ -41,6 +41,11 @@ type tokenReviewUser struct {
 	Groups   []string `json:"groups,omitempty"`
 }
 
+// ErrInvalidToken is returned when the token cannot be validated.
+var ErrInvalidToken = errors.New("invalid token")
+
+// ValidateToken sends a TokenReview request to the Kubernetes API server and
+// returns the authenticated username.
 func ValidateToken(ctx context.Context, token, baseURL string) (string, error) {
 	reqBody := tokenReviewRequest{
 		APIVersion: "authentication.k8s.io/v1",

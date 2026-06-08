@@ -51,7 +51,7 @@ func TestHandleRun_SetsWorkingDir(t *testing.T) {
 		Command:      "pwd",
 		AllowedPaths: []AllowedPath{{Path: "/Users/neil/project", ReadOnly: true}},
 	}
-	_, err := handleRun(t.Context(), cfg, sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(t.Context(), cfg, sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	assert.Equal(t, "/Users/neil/project", sbx.lastCfg.WorkingDir)
@@ -60,7 +60,7 @@ func TestHandleRun_SetsWorkingDir(t *testing.T) {
 func TestHandleRun_NoAllowedPaths_FallsBackToTempDir(t *testing.T) {
 	sbx := &captureSandbox{}
 	req := RunRequest{Command: "echo hi"}
-	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	assert.Equal(t, os.TempDir(), sbx.lastCfg.WorkingDir)
@@ -70,7 +70,7 @@ func TestHandleRun_DefaultsRunTimeoutToTwentyMinutes(t *testing.T) {
 	sbx := &deadlineSandbox{deadline: make(chan deadlineObservation, 1)}
 	start := time.Now()
 
-	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
+	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), nil, RunRequest{
 		Command: "echo hi",
 	})
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestHandleRun_UsesRequestTimeout(t *testing.T) {
 	sbx := &deadlineSandbox{deadline: make(chan deadlineObservation, 1)}
 	start := time.Now()
 
-	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), RunRequest{
+	_, err := handleRun(t.Context(), &sandbox.Config{}, sbx, NewBackgroundJobManager(), nil, RunRequest{
 		Command: "echo hi",
 		Timeout: 30,
 	})
@@ -100,7 +100,7 @@ func TestHandleRun_BackgroundJobOutlivesRequestContext(t *testing.T) {
 	sbx := &mockSandbox{delay: 10 * time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	resp, err := handleRun(ctx, &sandbox.Config{AutoBackgroundAfter: 1}, sbx, mgr, RunRequest{
+	resp, err := handleRun(ctx, &sandbox.Config{AutoBackgroundAfter: 1}, sbx, mgr, nil, RunRequest{
 		Command: "sleep 10",
 		Timeout: 30,
 	})
@@ -123,7 +123,7 @@ func TestHTTPRun_IgnoresAutoBackgroundAfterRequestField(t *testing.T) {
 	sbx := &mockSandbox{delay: 1500 * time.Millisecond}
 	handler := handleHTTPRunValidating(httpHandlers{
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
-			return handleRun(ctx, &sandbox.Config{AutoBackgroundAfter: 1}, sbx, mgr, req)
+			return handleRun(ctx, &sandbox.Config{AutoBackgroundAfter: 1}, sbx, mgr, nil, req)
 		},
 	})
 
@@ -216,7 +216,7 @@ func TestBuildMounts_WorkingDirPreservedWithAncestors(t *testing.T) {
 			{Path: "/Users/neil/Code/project", ReadOnly: true},
 		},
 	}
-	_, err := handleRun(t.Context(), cfg, sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(t.Context(), cfg, sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 	require.NotNil(t, sbx.lastCfg)
 	// WorkingDir must still be the explicit mount, not an ancestor.
@@ -257,7 +257,7 @@ func TestHandleRun_FiltersDisallowedEnvKeys(t *testing.T) {
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "BAR": "2"}}
 
-	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 
 	found := false
@@ -275,7 +275,7 @@ func TestHandleRun_EmptyUserAllowEnv_BaselineStillPasses(t *testing.T) {
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
-	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 
 	hasUser := false
@@ -298,7 +298,7 @@ func TestHandleRun_GlobAllowEnv_RetainsMatching(t *testing.T) {
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"TTAL_JOB_ID": "abc", "OTHER": "xyz"}}
 
-	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 
 	found := false
@@ -316,7 +316,7 @@ func TestHandleRun_NilEnv_DoesNotCrash(t *testing.T) {
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo"} // Env field not set
 
-	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 
 	assert.Empty(t, sbx.lastCfg.Env)
@@ -327,7 +327,7 @@ func TestHandleRun_InvalidEnvKey_ReturnsError(t *testing.T) {
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"invalid-key": "value"}}
 
-	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), nil, req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "env")
 }
@@ -337,7 +337,7 @@ func TestHandleRun_EmptySliceAllowEnv_BaselineStillPasses(t *testing.T) {
 	var sbx captureSandbox
 	req := RunRequest{Command: "echo", Env: map[string]string{"FOO": "1", "USER": "alice", "HOME": "/home/alice"}}
 
-	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), req)
+	_, err := handleRun(context.Background(), cfg, &sbx, NewBackgroundJobManager(), nil, req)
 	require.NoError(t, err)
 
 	hasUser := false
