@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const tokenReviewURL = "https://kubernetes.default.svc/apis/authentication.k8s.io/v1/tokenreviews"
+const tokenReviewPath = "/apis/authentication.k8s.io/v1/tokenreviews"
 
 var ErrForbidden = errors.New("access denied — invalid token or caller identity")
 
@@ -41,7 +41,7 @@ type tokenReviewUser struct {
 	Groups   []string `json:"groups,omitempty"`
 }
 
-func ValidateToken(ctx context.Context, token string) (string, error) {
+func ValidateToken(ctx context.Context, token, baseURL string) (string, error) {
 	reqBody := tokenReviewRequest{
 		APIVersion: "authentication.k8s.io/v1",
 		Kind:       "TokenReview",
@@ -53,7 +53,8 @@ func ValidateToken(ctx context.Context, token string) (string, error) {
 		return "", fmt.Errorf("marshal token review: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenReviewURL, strings.NewReader(string(payload)))
+	url := baseURL + tokenReviewPath
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(payload)))
 	if err != nil {
 		return "", fmt.Errorf("build token review request: %w", err)
 	}

@@ -26,9 +26,12 @@ type Config struct {
 
 // KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
 // KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
+// KubernetesConfig holds the Kubernetes-specific configuration for Temenos.
 type KubernetesConfig struct {
 	Enabled               bool   `toml:"enabled"`                 // true for nested K8s mode (skip --proc /proc)
 	RequireServiceAccount string `toml:"require_service_account"` // SA username required on /run when enabled
+	// TokenReviewURL is the k8s API server base URL. Defaults to https://kubernetes.default.svc.
+	TokenReviewURL string `toml:"token_review_url"`
 }
 
 // DefaultConfigPath returns the default configuration file path.
@@ -160,6 +163,9 @@ func (c *Config) applyDefaults() error {
 			return err
 		}
 		c.SocketPath = socketPath
+	}
+	if c.Kubernetes.TokenReviewURL == "" {
+		c.Kubernetes.TokenReviewURL = "https://kubernetes.default.svc"
 	}
 	return nil
 }

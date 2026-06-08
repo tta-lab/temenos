@@ -182,7 +182,7 @@ func handleRun(
 		if req.AuthToken == "" {
 			return nil, &runError{status: http.StatusUnauthorized, msg: "authorization required"}
 		}
-		username, err := auth.ValidateToken(ctx, req.AuthToken)
+		username, err := auth.ValidateToken(ctx, req.AuthToken, cfg.Kubernetes.TokenReviewURL)
 		if err != nil {
 			slog.Warn("temenos: auth token validation failed", "err", err)
 			return nil, &runError{status: http.StatusForbidden, msg: "access denied — token validation failed"}
