@@ -8,11 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
-	"github.com/tta-lab/temenos/internal/auth"
 	"github.com/tta-lab/temenos/sandbox"
 )
 
@@ -99,30 +97,13 @@ func Run(version string, cgroupv2MemoryLimitMB int) error {
 	// Initialize background job manager.
 	jobMgr := NewBackgroundJobManager()
 
-	// Wire auth middleware if k8s mode has SA requirement.
-	var authChecker func(http.Handler) http.Handler
-	authEnabled := false
-	if cfg.Kubernetes.Enabled && cfg.Kubernetes.RequireServiceAccount != "" && cfg.Kubernetes.TokenReviewURL != "" {
-		requiredSAs := strings.Split(cfg.Kubernetes.RequireServiceAccount, ",")
-		for i := range requiredSAs {
-			requiredSAs[i] = strings.TrimSpace(requiredSAs[i])
-		}
-		authChecker = auth.ValidateSAJWTMiddleware(requiredSAs, cfg.Kubernetes.TokenReviewURL)
-		authEnabled = true
-		slog.Info("temenos: SA JWT auth enabled",
-			"required_sas", requiredSAs,
-			"token_review_url", cfg.Kubernetes.TokenReviewURL)
-	}
-
 	srv, serveErr, err := listenHTTP(addr, httpHandlers{
 		cfg: cfg,
 		run: func(ctx context.Context, req RunRequest) (*RunResponse, error) {
 			return handleRun(ctx, cfg, sbx, jobMgr, req)
 		},
-		health:      func() HealthResponse { return handleHealth(version) },
-		jobMgr:      jobMgr,
-		authEnabled: authEnabled,
-		authChecker: authChecker,
+		health: func() HealthResponse { return handleHealth(version) },
+		jobMgr: jobMgr,
 	})
 	if err != nil {
 		return err

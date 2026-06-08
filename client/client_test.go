@@ -1,14 +1,8 @@
 package client
 
 import (
-	"context"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewClientTransport(t *testing.T) {
@@ -127,27 +121,4 @@ func TestNewEmptyAddrResolvesViaEnv(t *testing.T) {
 	if c.baseURL != "http://temenos" {
 		t.Errorf("baseURL = %q; want http://temenos (unix transport)", c.baseURL)
 	}
-}
-
-func TestClient_SetAuthToken(t *testing.T) {
-	c := &Client{baseURL: "http://localhost", httpClient: &http.Client{}}
-
-	c.SetAuthToken("my-jwt-token")
-	assert.Equal(t, "my-jwt-token", c.authToken)
-}
-
-func TestClient_postsWithAuthHeader(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer token-abc", r.Header.Get("Authorization"))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"stdout":"ok","stderr":"","exit_code":0}`))
-	}))
-	defer srv.Close()
-
-	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
-	c.SetAuthToken("token-abc")
-
-	_, err := c.Run(context.Background(), RunRequest{Command: "echo hi"})
-	require.NoError(t, err)
 }
