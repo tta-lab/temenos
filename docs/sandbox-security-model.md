@@ -199,8 +199,9 @@ When enabled:
   remains in effect.
 - If `require_service_account` is set, every `/run`
   request must carry a valid Kubernetes service account token in the
-  `Authorization: Bearer <token>` header. Temenos validates it against the
-  TokenReview API and rejects calls from untrusted SAs.
+  `auth_token` in the JSON request body. Temenos validates it against the
+  TokenReview API (POST /apis/authentication.k8s.io/v1/tokenreviews on the
+  configured or default `token_review_url`) and rejects calls from untrusted SAs.
 
 No `CAP_SYS_ADMIN` or `privileged: true` is needed.
 
