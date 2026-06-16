@@ -12,7 +12,8 @@ import (
 type Options struct {
 	Timeout          time.Duration
 	AllowUnsandboxed bool
-	MemoryLimitMB    int // present but unused on darwin
+	MemoryLimitMB    int  // present but unused on darwin
+	KubernetesMode   bool // present but unused on darwin
 }
 
 // New creates the appropriate sandbox for the current platform.
