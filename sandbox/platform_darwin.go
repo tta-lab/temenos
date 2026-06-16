@@ -5,15 +5,7 @@ package sandbox
 import (
 	"log/slog"
 	"runtime"
-	"time"
 )
-
-// Options configures the sandbox constructor.
-type Options struct {
-	Timeout          time.Duration
-	AllowUnsandboxed bool
-	MemoryLimitMB    int // present but unused on darwin
-}
 
 // New creates the appropriate sandbox for the current platform.
 // On macOS, it returns a SeatbeltSandbox if sandbox-exec is available.
